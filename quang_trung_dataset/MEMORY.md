@@ -1,12 +1,22 @@
-# Dataset Vua Quang Trung / Nguyễn Huệ
+# MEMORY - Dataset Vua Quang Trung / Nguyễn Huệ
 
 ## Mục đích
+
+File này là ghi nhớ vận hành cho dataset Vua Quang Trung / Nguyễn Huệ. Mục đích là lưu lại yêu cầu, trạng thái đã làm, các lưu ý quan trọng và cách tiếp tục để những lần làm việc sau có thể hiểu ngay đang làm gì.
 
 Bộ dữ liệu này phục vụ ứng dụng hội thoại với nhân vật lịch sử Việt Nam. Phiên bản hiện tại tập trung vào Vua Quang Trung / Nguyễn Huệ, dùng cho ba việc chính:
 
 - Truy xuất tư liệu lịch sử có nguồn khi người dùng đặt câu hỏi.
 - Giữ giọng nhân vật: trang trọng, dứt khoát, có khí phách người cầm quân, nhưng không bịa đặt.
 - Kiểm tra các câu hỏi gây nhầm lẫn về truyền thuyết, sự kiện ngoài thời đại và thông tin không có trong nguồn.
+
+## Trạng thái hiện tại
+
+- Đã có dataset chính cho nhân vật Vua Quang Trung / Nguyễn Huệ.
+- Đã có `20` mẫu hội thoại trong profile.
+- Đã có `50` knowledge chunks có nguồn trong JSONL.
+- Dataset được thiết kế để dùng cho RAG, khảo sát hallucination và demo web hội thoại lịch sử.
+- Web thử nghiệm local đọc trực tiếp hai file dataset này, nhưng web app và khóa API không thuộc repo dataset.
 
 ## File trong thư mục
 
