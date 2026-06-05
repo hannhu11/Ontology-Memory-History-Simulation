@@ -1,138 +1,124 @@
-# MEMORY - Dataset Vua Quang Trung / Nguyễn Huệ
+# MEMORY - Dataset và Prototype Quang Trung
 
-## Mục đích
+Tài liệu này dùng để ghi nhớ trạng thái dự án, lỗi đã phát hiện và quy tắc bắt buộc khi tiếp tục phát triển dataset hoặc web prototype. Đây là file local-only trong thư mục dataset; không dùng làm README công khai.
 
-File này là ghi nhớ vận hành cho dataset Vua Quang Trung / Nguyễn Huệ. Mục đích là lưu lại yêu cầu, trạng thái đã làm, các lưu ý quan trọng và cách tiếp tục để những lần làm việc sau có thể hiểu ngay đang làm gì.
+## Mục tiêu hiện tại
 
-Bộ dữ liệu này phục vụ ứng dụng hội thoại với nhân vật lịch sử Việt Nam. Phiên bản hiện tại tập trung vào Vua Quang Trung / Nguyễn Huệ, dùng cho ba việc chính:
+- Xây dựng dataset và web MVP cho nhân vật Vua Quang Trung / Nguyễn Huệ.
+- Web cho phép người dùng trò chuyện với nhân vật lịch sử, có lớp RAG đối chiếu tư liệu và guardrail chống ảo giác.
+- Nhân vật phải nói như một vị vua đang đối thoại với hậu thế; phần kiểm chứng học thuật nằm ở UI, không nằm trong miệng nhân vật.
 
-- Truy xuất tư liệu lịch sử có nguồn khi người dùng đặt câu hỏi.
-- Giữ giọng nhân vật: trang trọng, dứt khoát, có khí phách người cầm quân, nhưng không bịa đặt.
-- Kiểm tra các câu hỏi gây nhầm lẫn về truyền thuyết, sự kiện ngoài thời đại và thông tin không có trong nguồn.
+## Lỗi nghiêm trọng đã phát hiện
 
-## Trạng thái hiện tại
+1. Lời nhân vật bị Out of Character: xuất hiện các cụm như "nguồn đang có", "nguồn truy xuất", "guardrail", "dataset", "API", "người học".
+2. Guardrail trả lời máy móc và sai trọng tâm. Ví dụ câu Blitzkrieg có năm 1789 đúng, nhưng hệ thống lại bác mốc 1789 thay vì bác khái niệm Blitzkrieg/quân Đức là đời sau.
+3. Dataset thiên về quân sự, thiếu nặng mảng ngoại giao Tây Sơn - Thanh sau Ngọc Hồi - Đống Đa.
+4. Câu hỏi về Càn Long, biểu tạ tội, cầu phong có nguy cơ bị hệ thống chối bỏ do thiếu dữ liệu. Đây là lỗi sử học nghiêm trọng.
+5. UI dùng nhãn "Nguồn truy xuất" và hiển thị "Guardrail nội bộ" ngay dưới câu trả lời, làm sụp hình tượng nhập vai.
 
-- Đã có dataset chính cho nhân vật Vua Quang Trung / Nguyễn Huệ.
-- Đã có `20` mẫu hội thoại trong profile.
-- Đã có `50` knowledge chunks có nguồn trong JSONL.
-- Dataset được thiết kế để dùng cho RAG, khảo sát hallucination và demo web hội thoại lịch sử.
-- Web thử nghiệm local đọc trực tiếp hai file dataset này, nhưng web app và khóa API không thuộc repo dataset.
+## Quy tắc tách vai
 
-## File trong thư mục
+- Nhân vật chỉ nói bằng giọng nhập vai: xưng "ta", không tự gọi mình là Quang Trung / Nguyễn Huệ.
+- UI chịu trách nhiệm minh bạch học thuật: panel citation dùng "Tư liệu đối chiếu".
+- Nhân vật không được nhắc cơ chế vận hành của hệ thống.
+- Khi thiếu chứng cứ, nhân vật nói: "Việc ấy chưa đủ chứng cứ để ta nhận là thật. Chớ vội biến lời truyền chưa rõ thành sử thực."
+- Khi gặp khái niệm đời sau, nhân vật bác đúng phần sai, không bác sự kiện lịch sử đúng.
 
-- `quang_trung_profile.json`: hồ sơ nhân vật, metadata, quy tắc giọng nói và 20 mẫu hỏi đáp.
-- `quang_trung_knowledge.jsonl`: 50 đoạn kiến thức có nguồn, mỗi dòng là một JSON object độc lập.
+## Từ cấm trong lời nhân vật
 
-Không đưa vào repo các file chạy thử, file web, log, môi trường ảo, khóa API hoặc cấu hình máy cá nhân.
+Các từ/cụm sau không được xuất hiện trong `character_response`, fallback RAG, hoặc câu trả lời API:
 
-## Cấu trúc dữ liệu
+- nguồn
+- truy xuất
+- guardrail
+- dataset
+- API
+- người học
+- mô hình
+- citation
+- chunk
 
-### Profile
+Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu kỹ thuật, log kiểm thử, README nội bộ, tên biến, hoặc UI kiểm chứng; nhưng không được nằm trong lời nhân vật.
 
-`quang_trung_profile.json` gồm các nhóm thông tin cần thiết:
+## Case test bắt buộc
 
-- `character_id`: `quang_trung`
-- thông tin nhân vật: tên hiển thị, tên khác, năm sinh mất, triều đại, vai trò lịch sử.
-- đặc điểm giọng nói: mạnh mẽ, ngắn gọn, cẩn trọng với sử liệu.
-- quy tắc hệ thống: luôn xưng `ta`, không tự gọi mình bằng tên nhân vật trong câu trả lời.
-- `sample_dialogues`: 20 cặp hỏi đáp làm mẫu cho giọng nhân vật.
+- Càn Long / biểu tạ tội / cầu phong: phải trả lời rằng sau đại thắng vẫn có giảng hòa, cầu phong, dùng ngôn ngữ bang giao mềm dẻo; không được chối bỏ sự kiện; không diễn giải thành "phục tùng tuyệt đối".
+- Blitzkrieg / quân Đức: phải công nhận năm Kỷ Dậu 1789 là đúng, nhưng bác Blitzkrieg là khái niệm đời sau.
+- Vương Đại Hải / cửa biển Thần Phù / năm 1790: không bịa trận; trả lời nhập vai rằng việc ấy chưa đủ chứng cứ.
+- Internet / Facebook / AI / Điện Biên Phủ: bác ngoài thời đại, giữ giọng vua.
+- Ngọc Hồi - Đống Đa, Nghệ An, Rạch Gầm - Xoài Mút: vẫn phải trả lời factual, có tư liệu đối chiếu ở UI.
 
-### Knowledge JSONL
+## Dữ liệu cần bổ sung
 
-Mỗi dòng trong `quang_trung_knowledge.jsonl` có các trường:
+Ưu tiên bổ sung cụm ngoại giao Tây Sơn - Thanh:
 
-- `char_id`
-- `chunk_id`
-- `source_title`
-- `source_year`
-- `source_type`
-- `source_url`
-- `topic_title`
-- `fact`
-- `text`
-- `tags`
+- Ngô Thì Nhậm và đường lối giảng hòa sau chiến thắng.
+- Thư tạ tội / thư giảng hòa trong ngôn ngữ bang giao.
+- Phúc Khang An và vai trò làm trung gian xử lý hậu chiến.
+- Càn Long, cầu phong và việc nhà Thanh phong vương theo nghi lễ bang giao.
+- Phạm Công Trị / giả vương sang Thanh: đánh dấu `claim_status = contested` nếu nguồn có tranh luận.
+- Phân biệt ngoại giao triều cống với việc "phục tùng tuyệt đối".
 
-Mỗi chunk chỉ nên tập trung vào một sự kiện, nhận định hoặc bối cảnh cụ thể. Khi mở rộng dataset, giữ mỗi chunk trong phạm vi ngắn gọn để truy xuất và hiển thị citation rõ ràng.
+## Quy tắc đánh giá nghiêm khắc
 
-## Nguyên tắc giọng nhân vật
+- Nhập vai nhân vật không đạt nếu còn lộ thuật ngữ kỹ thuật.
+- RAG không đạt nếu chặn bịa nhưng bác sai trọng tâm.
+- Dataset không đạt nếu chỉ tạo một Quang Trung võ biền mà bỏ thiếu ngoại giao.
+- UI không đạt nếu panel kiểm chứng làm người dùng tưởng nhân vật tự nói về hệ thống.
 
-- Nhân vật trả lời bằng tiếng Việt có dấu đầy đủ.
-- Nhân vật xưng `ta`.
-- Không tự gọi mình là `Quang Trung` hoặc `Nguyễn Huệ` trong phần trả lời trực tiếp.
-- Nếu cần nói về danh xưng, dùng cách diễn đạt như `ta là vị hoàng đế của triều Tây Sơn`.
-- Không chen tiếng Anh vào câu trả lời thông thường.
-- Không khẳng định điều không có trong nguồn.
-- Với câu hỏi ngoài thời đại sau năm 1792, trả lời rằng việc ấy nằm ngoài đời sống lịch sử của nhân vật.
-- Với truyền thuyết chưa có căn cứ, trả lời rằng hiện chưa thấy căn cứ trong nguồn đang có.
+## Ghi chú vận hành
 
-Nguyên tắc này cũng nên áp dụng cho các nhân vật tiếp theo: Nguyễn Trãi, Trần Hưng Đạo, Hồ Chí Minh, Võ Nguyên Giáp. Mỗi nhân vật cần có profile riêng, nhưng cùng phải giữ cách xưng hô theo vai diễn của nhân vật.
+- Bước hiện tại là local-only, không push GitHub.
+- Sau khi sửa phải regenerate `quang_trung_profile.json` và `quang_trung_knowledge.jsonl`.
+- Chạy validation dataset và smoke test web trước khi dùng demo.
 
-## Nguồn đã dùng
+## Trạng thái cập nhật 2026-06-03
 
-Các chunk ưu tiên nguồn sử học, bảo tàng, viện nghiên cứu và bài viết có nội dung rõ ràng:
+- Đã regenerate dataset lên 62 chunks.
+- Đã thêm 12 chunks ngoại giao `qt_kb_051`-`qt_kb_062`.
+- Đã thêm trường `claim_status` cho từng chunk: mặc định `established`, riêng các nhận định diễn giải là `interpretive`, các vấn đề Phạm Công Trị / giả vương là `contested`.
+- Đã sửa sample dialogues để lời nhân vật không dùng "nguồn", "truy xuất", "người học", "guardrail", "dataset", "API".
+- Đã sửa RAG fallback để nhân vật nói nhập vai: thiếu chứng cứ thì nói "Việc ấy chưa đủ chứng cứ để ta nhận là thật"; không nhắc cơ chế hệ thống.
+- Đã sửa case Blitzkrieg: giữ mốc Kỷ Dậu 1789 là đúng, bác Blitzkrieg/quân Đức là khái niệm đời sau.
+- Đã sửa case Càn Long: trả lời theo hướng ngoại giao mềm, giảng hòa/cầu phong/bang giao, không diễn giải thành mất độc lập hoặc phục tùng tuyệt đối.
+- Đã đổi UI: "Nguồn truy xuất" thành "Tư liệu đối chiếu"; "Năm nguồn" thành "Niên đại tài liệu"; "Mở nguồn" thành "Mở tư liệu"; trạng thái kỹ thuật nằm trong expander "Trạng thái kiểm chứng".
+- Đã lọc hậu xử lý API: nếu Gemini/Groq sinh thuật ngữ cấm hoặc tự gọi tên nhân vật, app bỏ câu đó và dùng fallback nội bộ.
 
-- Việt Nam sử lược - Quyển II, Phần IV, Chương XI: https://vi.wikisource.org/wiki/Vi%E1%BB%87t_Nam_s%E1%BB%AD_l%C6%B0%E1%BB%A3c/Quy%E1%BB%83n_II/1971/Ph%E1%BA%A7n_IV/Ch%C6%B0%C6%A1ng_XI
-- Viện Sử học VASS về chiến thắng Ngọc Hồi - Đống Đa: https://viensuhoc.vass.gov.vn/bao-ve-nen-tang-tu-tuong-cua-dang/chien-thang-ngoc-hoi-dong-da-mua-xuan-nam-ky-dau-1789-dau-an-lich-su-va-van-hoa-560605
-- Bảo tàng Lịch sử Quốc gia về cuộc tấn công thần tốc: https://baotanglichsu.vn/vi/Articles/2001/66240/cuoc-tan-cong-than-toc-nhat-lich-su-viet.html
-- Quân đội nhân dân về Rạch Gầm - Xoài Mút: https://hc.qdnd.vn/lich-su-hau-can/chien-thang-rach-gam-xoai-mut-va-bai-hoc-ve-cong-tac-hau-can-482369
-- Tạp chí Quốc phòng toàn dân về nghệ thuật Ngọc Hồi - Đống Đa: https://tapchiqptd.vn/vi/nghien-cuu-tim-hieu/nghe-thuat-to-chuc-luc-luong-trong-tran-quyet-chien-chien-luoc-ngoc-hoi-dong-da-nam-1789/4939.html
+## Trạng thái cập nhật lần 2 ngày 2026-06-03
 
-## Mốc lịch sử cần giữ đúng
+- Đã mở rộng dataset lên 100 chunks, mỗi chunk dài 130-164 từ, có `source_quality`, `answer_intents`, `canonical_questions`, `tag_blob`.
+- Đã bổ sung các cụm dữ liệu thiếu: Phượng Hoàng Trung Đô, Nguyễn Thiếp, tín bài, sổ đinh, Chiếu khuyến nông, tiền Quang Trung thông bảo / Quang Trung đại bảo, Chiếu lập học, Sùng chính viện, Ngô Thì Nhậm, Chiếu cầu hiền, ăn Tết trước, tượng binh, hỏa hổ, mộc rơm ướt.
+- Đã sửa ground truth tín bài: dùng `Thiên hạ đại tín`; `Thiên hạ đại định` chỉ còn xuất hiện trong chunk correction để hệ thống chỉnh lại khi người dùng hỏi sai.
+- Đã chuyển web sang `VectorRetriever` dùng ChromaDB + `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, có `RAG_SCORE_THRESHOLD`, `RAG_TOP_K`, `RAG_EMBEDDING_MODEL`, `RAG_INDEX_DIR`.
+- Đã giữ fallback lexical có intent filter để xử lý tiếng Việt có dấu/không dấu và tránh rơi lại lỗi bắt rác top-K.
+- Đã bổ sung guardrail cho `thế chiến`, `chiến tranh thế giới`, `world war`, `WW1`, `WW2`, năm 1939, 1945 và mọi mốc sau 1792.
+- Đã thay fallback chung "Việc ấy có liên quan tới những điều đã chép..." bằng các câu trả lời intent-specific hoặc câu thiếu chứng cứ hẹp hơn.
+- Đã thêm positive tests nâng cao cho 9 câu cải cách/định đô/sĩ phu/quân sự vi mô và negative tests Thế chiến.
 
-- Nguyễn Huệ sinh năm 1753, mất năm 1792.
-- Phong trào Tây Sơn khởi lên trong bối cảnh Đàng Trong rối ren.
-- Rạch Gầm - Xoài Mút diễn ra năm 1785.
-- Nguyễn Huệ lên ngôi năm 1788, niên hiệu Quang Trung.
-- Chiến dịch Ngọc Hồi - Đống Đa diễn ra mùa xuân Kỷ Dậu 1789.
-- Điện Biên Phủ, Internet, Facebook, trí tuệ nhân tạo và các công nghệ hiện đại nằm ngoài thời đại của nhân vật.
+## Kiểm thử đã chạy 2026-06-03
 
-## Bộ câu hỏi kiểm thử nên giữ
+- `python .\quang_trung_dataset\build_dataset.py`
+- `python .\quang_trung_dataset\validate_dataset.py`
+- `.\quang_trung_web\.venv\Scripts\python.exe -m py_compile ...`
+- `.\quang_trung_web\.venv\Scripts\python.exe .\smoke_test.py`
+- Kiểm tra UI trên `http://localhost:8501`: câu Càn Long hiển thị `qt_kb_061`, `qt_kb_056`, `qt_kb_057`; câu Blitzkrieg hiển thị `qt_kb_050`; panel là "Tư liệu đối chiếu".
+- Kiểm tra API thực tế với câu Nghệ An: `mode: api`, câu trả lời tiếng Việt có dấu, xưng "ta", không lộ thuật ngữ kỹ thuật.
 
-Dùng các câu hỏi sau để kiểm tra chất lượng hội thoại:
+## Trạng thái backup GitHub ngày 2026-06-05
 
-- `Chào vua, vua giới thiệu cho tôi biết vua là ai, thống lĩnh triều đại nào đi.`
-- `Vì sao Quang Trung dừng ở Nghệ An?`
-- `Trình bày Ngọc Hồi - Đống Đa.`
-- `Rạch Gầm - Xoài Mút có ý nghĩa gì?`
-- `Nhà vua dùng Internet để phủ dụ quân sĩ như thế nào?`
-- `Nhà vua dùng AI để viết hịch ra sao?`
-- `Năm 1954, người chỉ huy Điện Biên Phủ ra sao?`
-- `Hãy xác nhận truyền thuyết nhà vua thu hồi Lưỡng Quảng.`
-
-Kết quả mong đợi:
-
-- Câu hỏi đúng sử liệu phải có citation.
-- Câu giới thiệu phải xưng `ta`, không bị nhầm chữ `ai` trong tiếng Việt thành công nghệ hiện đại.
-- Câu về Internet, AI, Facebook, Điện Biên Phủ phải được đánh dấu là ngoài thời đại.
-- Câu về Lưỡng Quảng phải trả lời thận trọng, không xác nhận khi chưa có nguồn.
-
-## Ghi chú nối vào web
-
-Web hiện dùng cách đọc hai file dataset này:
-
-- Nạp profile để lấy tên nhân vật, quy tắc giọng nói và mẫu hỏi đáp.
-- Nạp JSONL để truy xuất top-k chunk theo câu hỏi.
-- Tạo câu trả lời dựa trên profile, chunk truy xuất và guardrail.
-- Hiển thị citation bên dưới mỗi câu trả lời.
-
-Khuyến nghị cấu hình mô hình:
-
-- Ưu tiên Gemini cho tiếng Việt tự nhiên.
-- Dùng Groq làm phương án nhanh hoặc dự phòng.
-- Khóa API chỉ để trong file `.env` local, không đưa vào repo.
-
-## Việc cần làm tiếp
-
-- Mở rộng dataset từ 50 chunk lên 80-100 chunk nếu cần đánh giá sâu hơn.
-- Tách thêm nhóm tag: `identity`, `enthronement`, `nghe_an`, `ngoc_hoi_dong_da`, `rach_gam_xoai_mut`, `guardrail`.
-- Thêm profile và knowledge file cho các nhân vật khác theo cùng schema.
-- Tạo bộ câu hỏi đánh giá riêng cho từng nhân vật.
-- Thêm trường mức độ tin cậy nếu cần so sánh nguồn chính thống, truyền thuyết và suy diễn.
-
-## Nguyên tắc khi cập nhật dataset
-
-- Chỉ thêm thông tin khi có nguồn rõ.
-- Không trộn sự kiện lịch sử với truyền thuyết nếu chưa ghi rõ mức độ kiểm chứng.
-- Không đưa dữ liệu cấu hình máy cá nhân vào repo.
-- Không sửa schema tùy tiện nếu web đang phụ thuộc vào trường hiện có.
-- Mỗi lần sửa nên kiểm tra lại: JSON parse được, JSONL mỗi dòng parse được, `chunk_id` không trùng, source URL không rỗng.
+- Repo backup chính thức: `https://github.com/hannhu11/Ontology-Memory-History-Simulation`.
+- Nội dung đưa lên repo backup gồm `quang_trung_dataset/` và `quang_trung_web/`, bao gồm dataset JSONL đã build, profile, script build/validate, app Streamlit, RAG core, provider API, smoke test, README và asset UI cần thiết.
+- Tuyệt đối không push `.env`, API key, token, `.venv/`, `.rag_index/`, log Streamlit, `__pycache__/`, file model cache hoặc file build tạm. `.env.example` chỉ giữ tên biến rỗng để người triển khai tự điền local.
+- Khi clone repo mới, chạy từ thư mục gốc:
+  - `cd quang_trung_web`
+  - `python -m venv .venv`
+  - `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`
+  - copy `.env.example` thành `.env` ở local và tự điền `GROQ_API_KEY`, `GEMINI_API_KEY` nếu muốn dùng API thật; không commit `.env`.
+  - `.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501`
+- Lệnh build và kiểm thử trước demo:
+  - `python .\quang_trung_dataset\build_dataset.py`
+  - `python .\quang_trung_dataset\validate_dataset.py`
+  - `.\quang_trung_web\.venv\Scripts\python.exe -m py_compile .\quang_trung_web\app.py .\quang_trung_web\rag_core.py .\quang_trung_web\llm_provider.py .\quang_trung_web\tts_provider.py .\quang_trung_web\smoke_test.py`
+  - `cd quang_trung_web; .\.venv\Scripts\python.exe .\smoke_test.py`
+- `.rag_index/quang_trung` là cache ChromaDB local, tự rebuild khi JSONL đổi; không cần và không được đưa lên GitHub.
+- Mỗi khi hoàn thành một plan hoặc nhiệm vụ đáng kể, cập nhật file này trước khi commit/push để agent ở chat mới đọc một file là biết trạng thái dự án, cách setup và các ràng buộc hiện tại.

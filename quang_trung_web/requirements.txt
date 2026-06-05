@@ -1,0 +1,6 @@
+streamlit>=1.32
+groq>=0.13
+google-genai>=1.0
+python-dotenv>=1.0
+chromadb>=0.5.23
+sentence-transformers>=3.3.1
