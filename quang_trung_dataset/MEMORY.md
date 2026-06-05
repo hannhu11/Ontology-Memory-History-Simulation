@@ -163,3 +163,14 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 - `llm_provider.py` đã cập nhật prompt “bảo toàn Simulacra”: Gemini phải dùng citation làm neo nhưng không được nói `không có dữ liệu`, `không thấy căn cứ`, `tư liệu hiện có`, `ngữ cảnh` hoặc các thuật ngữ kỹ thuật trong lời nhân vật.
 - `tts_provider.py` đã chuyển từ `input.text` sang `input.ssml`, giữ voice `vi-VN-Neural2-D` nhưng bọc câu trả lời bằng `<prosody pitch="-7st" rate="0.90"><emphasis level="strong">...</emphasis></prosody>` để mô phỏng giọng trầm, chậm và uy nghi hơn. Google Cloud TTS hiện không có nhãn giọng miền Trung/Bình Định riêng cho `vi-VN`.
 - `smoke_test.py` đã bổ sung regression tests cho pronoun rewriting, battle reflection retrieval và SSML payload escaping.
+
+## Hotfix battle description ngày 2026-06-06
+
+- User phát hiện câu `vua hãy mô tả về trận đánh với quân thanh đi` vẫn có lúc trả lời như fallback cũ hoặc quá chung. Nguyên nhân thực tế gồm hai lớp: server Streamlit đang chạy process cũ trước khi nạp patch, và logic intent trước đó xếp mọi câu có `trận đánh` + đại từ `vua/ngài` vào `battle_reflection`.
+- Đã tách rõ hai nhóm:
+  - `battle_reflection`: chỉ dùng cho câu hỏi hãnh diện/tự hào/đáng nhớ/chiến thắng nào.
+  - `micro_tactics`: dùng cho câu mô tả/kể/diễn biến trận với quân Thanh, Ngọc Hồi, Đống Đa, Tôn Sĩ Nghị.
+- `rag_core.py` đã thêm từ khóa `quân Thanh`, `Tôn Sĩ Nghị`, `mô tả trận`, `diễn biến trận`, `trận đánh với quân Thanh` vào `micro_tactics`; `query_variants()` cũng thêm biến thể Ngọc Hồi - Đống Đa, Hà Hồi, tượng binh, hỏa hổ, đại bác, mộc rơm ướt.
+- Câu trả lời `micro_tactics` mặc định đã đổi thành mô tả cụ thể chiến dịch chống quân Thanh: tiến thần tốc, chia nhiều đạo, uy hiếp Hà Hồi, đánh Ngọc Hồi bằng mộc rơm ướt, phối hợp tượng binh/hỏa hổ/súng/bộ binh, vu hồi Đống Đa và làm Tôn Sĩ Nghị rối loạn.
+- `smoke_test.py` đã thêm `BATTLE_DESCRIPTION_CASES`, trong đó có đúng câu user báo lỗi. Test yêu cầu intent phải là `micro_tactics`, không phải `battle_reflection`, answer phải nhắc `quân Thanh`, `Ngọc Hồi`, `Đống Đa`, và citation phải thuộc nhóm chiến trận.
+- Nếu trình duyệt còn hiện câu cũ sau hotfix, cần hard refresh hoặc bấm `Xóa hội thoại`; câu cũ đã được sinh trong session trước đó sẽ không tự biến mất.

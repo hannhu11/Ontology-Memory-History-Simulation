@@ -216,20 +216,14 @@ INTENT_QUERY_TERMS = {
         "danh si",
     },
     "battle_reflection": {
-        "tran danh",
         "tran nao",
         "tran danh nao",
         "chien thang nao",
-        "chien thang lon",
-        "thang lon",
         "thang nao",
         "hanh dien",
         "tu hao",
         "dang nho",
         "nho nhat",
-        "ke ve mot tran",
-        "noi qua ve mot tran",
-        "noi qua ve 1 tran",
         "cam thay hanh dien",
         "cam thay tu hao",
     },
@@ -254,6 +248,11 @@ INTENT_QUERY_TERMS = {
         "nam dao",
         "canh tu",
         "chien thuat",
+        "quan thanh",
+        "ton si nghi",
+        "mo ta tran",
+        "dien bien tran",
+        "tran danh voi quan thanh",
     },
     "military": {
         "nghe an",
@@ -376,20 +375,17 @@ def source_quality_boost(chunk: dict) -> float:
 
 def is_battle_reflection_query(query: str) -> bool:
     normalized = normalize(query)
-    battle_terms = (
-        "tran danh",
-        "tran nao",
-        "chien thang nao",
-        "chien thang lon",
-        "thang lon",
-        "ke ve mot tran",
-        "noi qua ve mot tran",
-        "noi qua ve 1 tran",
-    )
-    affect_terms = ("hanh dien", "tu hao", "dang nho", "nho nhat", "cam thay")
-    return any(has_phrase(normalized, term) for term in battle_terms) and (
-        any(has_phrase(normalized, term) for term in affect_terms)
-        or any(term in normalized for term in ("vua", "ngai", "ong", "ta"))
+    affect_terms = ("hanh dien", "tu hao", "dang nho", "nho nhat", "cam thay hanh dien", "cam thay tu hao")
+    comparison_terms = ("tran nao", "tran danh nao", "chien thang nao", "thang nao", "chien thang lon nhat")
+    return any(has_phrase(normalized, term) for term in affect_terms + comparison_terms)
+
+
+def is_battle_description_query(query: str) -> bool:
+    normalized = normalize(query)
+    battle_terms = ("tran danh", "tran danh voi quan thanh", "quan thanh", "ngoc hoi", "dong da", "ton si nghi")
+    description_terms = ("mo ta", "ke ve", "noi qua", "dien bien", "tran danh", "chien thuat")
+    return any(has_phrase(normalized, term) for term in battle_terms) and any(
+        has_phrase(normalized, term) for term in description_terms
     )
 
 
@@ -416,6 +412,11 @@ def rewrite_query(query: str, profile: dict | None = None) -> str:
             "trận đánh hãnh diện tự hào chiến thắng lớn Ngọc Hồi Đống Đa Kỷ Dậu 1789 "
             "Rạch Gầm Xoài Mút năm 1785 quân Thanh quân Xiêm"
         )
+    elif is_battle_description_query(query):
+        additions.append(
+            "trận Ngọc Hồi Đống Đa mùa xuân Kỷ Dậu 1789 quân Thanh Tôn Sĩ Nghị "
+            "Hà Hồi Ngọc Hồi Đống Đa tượng binh hỏa hổ đại bác mộc rơm ướt năm đạo quân"
+        )
     if not additions:
         return query
     return " ".join([query, *additions])
@@ -429,6 +430,14 @@ def query_variants(query: str, profile: dict | None = None) -> list[str]:
                 "Quang Trung Nguyễn Huệ Tây Sơn trận Ngọc Hồi Đống Đa Kỷ Dậu 1789 chiến thắng hãnh diện nhất đại phá quân Thanh",
                 "Quang Trung Nguyễn Huệ Tây Sơn trận Rạch Gầm Xoài Mút năm 1785 chiến thắng quân Xiêm Nguyễn",
                 "Quang Trung Nguyễn Huệ nghệ thuật quân sự chiến thắng lớn trận đánh đáng nhớ",
+            ]
+        )
+    elif is_battle_description_query(query):
+        variants.extend(
+            [
+                "Quang Trung Nguyễn Huệ trận Ngọc Hồi Đống Đa Kỷ Dậu 1789 diễn biến đại phá quân Thanh Tôn Sĩ Nghị",
+                "Quang Trung Nguyễn Huệ chiến dịch Ngọc Hồi Đống Đa năm đạo quân Hà Hồi Ngọc Hồi Đống Đa",
+                "Tây Sơn tượng binh hỏa hổ đại bác mộc rơm ướt đánh quân Thanh ở Ngọc Hồi",
             ]
         )
     deduped = []
@@ -1029,8 +1038,11 @@ def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
             )
         else:
             answer = (
-                "Cốt lõi chiến dịch là thần tốc nhưng có tổ chức: chia nhiều đạo quân, đánh chính diện Ngọc Hồi, vu hồi Đống Đa, dùng tượng binh, hỏa lực, "
-                "đội mộc và các hướng bí mật để chia cắt địch. Khi bộ chỉ huy Thanh rối loạn, quân đông cũng hóa tan tác."
+                "Với quân Thanh, ta không đánh bằng một mũi đơn độc. Ta cho quân tiến thần tốc ra Bắc, chia thế nhiều đạo: "
+                "uy hiếp Hà Hồi để làm địch khiếp vía, đánh thẳng Ngọc Hồi bằng đội mộc rơm ướt che trước hỏa lực, phối hợp "
+                "tượng binh, hỏa hổ, súng và bộ binh áp sát. Ở hướng Đống Đa, các đạo vu hồi đánh vào sườn và sau lưng, khiến "
+                "quân Thanh rối loạn, Tôn Sĩ Nghị không kịp giữ thế trận. Thắng là vì đi nhanh, đánh đúng chỗ chủ quan của địch, "
+                "và buộc quân đông mà tan thành từng mảng."
             )
         return answer, "talking"
 

@@ -114,6 +114,11 @@ BATTLE_REFLECTION_CASES = [
     "ta thắng lớn trận nào khiến người đời còn nhớ?",
 ]
 
+BATTLE_DESCRIPTION_CASES = [
+    "vua hãy mô tả về trận đánh với quân thanh đi",
+    "ngài kể diễn biến trận Ngọc Hồi - Đống Đa đi",
+]
+
 
 def validate_tts_provider_contract() -> None:
     payload = build_tts_payload("Lệnh <tiến> & giữ thế.")
@@ -193,12 +198,44 @@ def validate_battle_reflection(profile: dict, retriever: VectorRetriever) -> Non
                 raise AssertionError(f"Battle reflection returned off-intent citation: {citation['chunk_id']}")
 
 
+def validate_battle_description(profile: dict, retriever: VectorRetriever) -> None:
+    for question in BATTLE_DESCRIPTION_CASES:
+        rewritten = rewrite_query(question, profile)
+        if "Quang Trung" not in rewritten or "Nguyễn Huệ" not in rewritten or "Tây Sơn" not in rewritten:
+            raise AssertionError(f"Rewritten query should anchor pronouns to Quang Trung: {question}")
+        intents = query_intents(question)
+        if "micro_tactics" not in intents:
+            raise AssertionError(f"Battle description should resolve to micro_tactics intent: {question} -> {intents}")
+        if "battle_reflection" in intents:
+            raise AssertionError(f"Battle description should not resolve to battle_reflection: {question}")
+        result = answer_query(question, profile, retriever)
+        print("=" * 80)
+        print("BATTLE_DESCRIPTION:", question)
+        print("STATE:", result["state"])
+        print("MODE:", result["mode"])
+        print("CITATIONS:", [item["chunk_id"] for item in result["citations"]])
+        print("ANSWER:", result["answer"][:700])
+        if result["state"] != "talking":
+            raise AssertionError(f"Battle description should keep talking state: {question}")
+        if not all(term in result["answer"] for term in ("quân Thanh", "Ngọc Hồi", "Đống Đa")):
+            raise AssertionError(f"Battle description answer should describe the Qing campaign: {result['answer']}")
+        if "hãnh diện nhất" in result["answer"].lower():
+            raise AssertionError("Battle description should not use battle reflection answer")
+        if not result["citations"]:
+            raise AssertionError(f"Battle description should return citations: {question}")
+        for citation in result["citations"]:
+            citation_intents = set(citation.get("answer_intents", [])) | set(citation.get("tags", []))
+            if not (citation_intents & {"micro_tactics", "military", "battle", "ngoc_hoi_dong_da", "qing_army"}):
+                raise AssertionError(f"Battle description returned off-intent citation: {citation['chunk_id']}")
+
+
 def main() -> int:
     validate_tts_provider_contract()
     profile = load_profile(DEFAULT_DATASET_DIR)
     chunks = load_chunks(DEFAULT_DATASET_DIR)
     retriever = VectorRetriever(chunks)
     validate_battle_reflection(profile, retriever)
+    validate_battle_description(profile, retriever)
     for question in QUESTIONS:
         result = answer_query(question, profile, retriever)
         print("=" * 80)
