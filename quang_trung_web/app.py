@@ -1,17 +1,12 @@
+import html
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-from llm_provider import (
-    active_provider_label,
-    configured_provider,
-    generate_character_answer,
-    is_configured,
-    provider_choices,
-    provider_status_label,
-)
+from llm_provider import generate_character_answer, is_configured
 from rag_core import DEFAULT_DATASET_DIR, VectorRetriever, answer_query, load_chunks, load_profile
-from tts_provider import synthesize
+from tts_provider import is_configured as is_tts_configured, synthesize
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -75,6 +70,15 @@ st.markdown(
         font-size: .92rem;
     }
     .small-label { color: #6a5a4e; font-size: .82rem; text-transform: uppercase; letter-spacing: 0; }
+    .tts-status {
+        border: 1px solid rgba(116, 108, 93, .22);
+        background: #f7f1e5;
+        color: #5b5046;
+        padding: .58rem .72rem;
+        border-radius: 6px;
+        font-size: .86rem;
+        margin: .48rem 0 .35rem;
+    }
     [data-testid="stChatMessage"] p,
     [data-testid="stChatMessageContent"] p,
     [data-testid="stMarkdownContainer"] p,
@@ -140,6 +144,207 @@ def render_verification_status(mode: str | None) -> None:
         st.caption(RESPONSE_MODE_LABELS.get(mode, mode))
 
 
+def render_audio_player(audio_base64: str, message_id: str, autoplay: bool = True) -> None:
+    audio_src = html.escape(f"data:audio/mpeg;base64,{audio_base64}", quote=True)
+    safe_id = html.escape(message_id, quote=True)
+    autoplay_attr = "autoplay" if autoplay else ""
+    player_html = f"""
+    <div class="qt-tts-shell" data-player="{safe_id}">
+      <audio id="qt-tts-audio" src="{audio_src}" preload="auto" {autoplay_attr}></audio>
+      <div class="qt-tts-top">
+        <button id="qt-tts-toggle" type="button" aria-label="Phát giọng đọc">Phát</button>
+        <div class="qt-tts-copy">
+          <div class="qt-tts-kicker"><span></span> Google TTS · vi-VN-Neural2-D</div>
+          <div id="qt-tts-label" class="qt-tts-label">Bấm phát nếu trình duyệt chặn tự động đọc</div>
+        </div>
+        <div id="qt-tts-time" class="qt-tts-time">0:00</div>
+      </div>
+      <button id="qt-tts-track" class="qt-tts-track" type="button" aria-label="Tua giọng đọc">
+        <span id="qt-tts-progress"></span>
+      </button>
+    </div>
+    <style>
+      :root {{
+        --ks-kinpaku: oklch(84% 0.19 80.46);
+        --ks-kinpaku-pale: oklch(86% 0.07 84);
+        --ks-patina: oklch(70% 0.12 188);
+        --ks-lacquer-deep: oklch(4% 0.004 95);
+        --ks-lacquer-raised: oklch(11% 0.006 95);
+        --ks-graphite: oklch(15% 0.008 95);
+        --ks-champagne: oklch(91% 0 0);
+        --ks-text: oklch(88% 0 0);
+        --ks-text-muted: oklch(72% 0 0);
+        --ks-rule: oklch(78% 0 0 / 0.16);
+        --ks-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+      }}
+      html, body {{
+        margin: 0;
+        background: transparent;
+        color-scheme: dark;
+        font-family: "Albert Sans", "Avenir Next", "Helvetica Neue", Arial, system-ui, sans-serif;
+      }}
+      .qt-tts-shell {{
+        box-sizing: border-box;
+        width: 100%;
+        padding: 12px 14px;
+        margin: 2px 0 4px;
+        border: 1px solid var(--ks-rule);
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, oklch(84% 0.19 80.46 / 0.08), transparent 32%),
+          linear-gradient(180deg, var(--ks-lacquer-raised), var(--ks-lacquer-deep));
+        color: var(--ks-text);
+      }}
+      .qt-tts-top {{
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+      }}
+      #qt-tts-toggle {{
+        width: 44px;
+        height: 36px;
+        border: 1px solid var(--ks-kinpaku);
+        border-radius: 4px;
+        background: var(--ks-kinpaku);
+        color: var(--ks-lacquer-deep);
+        font: 600 0.82rem/1 "Albert Sans", Arial, sans-serif;
+        cursor: pointer;
+        transition: transform 180ms var(--ks-ease), background 180ms var(--ks-ease);
+      }}
+      #qt-tts-toggle:hover {{
+        background: var(--ks-kinpaku-pale);
+        transform: translateY(-1px);
+      }}
+      .qt-tts-copy {{
+        min-width: 0;
+      }}
+      .qt-tts-kicker {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ks-kinpaku);
+        font: 600 0.68rem/1.2 "SFMono-Regular", Consolas, monospace;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }}
+      .qt-tts-kicker span {{
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--ks-patina);
+        box-shadow: 0 0 18px oklch(70% 0.12 188 / .38);
+      }}
+      .qt-tts-label {{
+        margin-top: 5px;
+        color: var(--ks-champagne);
+        font-size: .86rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+      .qt-tts-time {{
+        color: var(--ks-text-muted);
+        font: 600 .78rem/1 "SFMono-Regular", Consolas, monospace;
+      }}
+      .qt-tts-track {{
+        position: relative;
+        display: block;
+        width: 100%;
+        height: 8px;
+        margin-top: 12px;
+        padding: 0;
+        border: 1px solid oklch(78% 0 0 / .14);
+        border-radius: 999px;
+        background: var(--ks-graphite);
+        overflow: hidden;
+        cursor: pointer;
+      }}
+      #qt-tts-progress {{
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0%;
+        background: linear-gradient(90deg, var(--ks-kinpaku), var(--ks-patina));
+      }}
+      @media (max-width: 520px) {{
+        .qt-tts-top {{
+          grid-template-columns: 46px minmax(0, 1fr);
+        }}
+        .qt-tts-time {{
+          grid-column: 2;
+          justify-self: start;
+        }}
+      }}
+    </style>
+    <script>
+      const audio = document.getElementById("qt-tts-audio");
+      const toggle = document.getElementById("qt-tts-toggle");
+      const label = document.getElementById("qt-tts-label");
+      const progress = document.getElementById("qt-tts-progress");
+      const track = document.getElementById("qt-tts-track");
+      const time = document.getElementById("qt-tts-time");
+
+      function formatTime(value) {{
+        if (!Number.isFinite(value) || value < 0) return "0:00";
+        const minutes = Math.floor(value / 60);
+        const seconds = Math.floor(value % 60).toString().padStart(2, "0");
+        return `${{minutes}}:${{seconds}}`;
+      }}
+
+      function updateProgress() {{
+        if (!audio.duration) {{
+          progress.style.width = "0%";
+          time.textContent = "0:00";
+          return;
+        }}
+        const pct = Math.min(100, Math.max(0, (audio.currentTime / audio.duration) * 100));
+        progress.style.width = `${{pct}}%`;
+        time.textContent = `${{formatTime(audio.currentTime)}} / ${{formatTime(audio.duration)}}`;
+      }}
+
+      async function playAudio() {{
+        try {{
+          await audio.play();
+        }} catch (error) {{
+          label.textContent = "Trình duyệt đã chặn tự động đọc. Bấm Phát để nghe.";
+        }}
+      }}
+
+      toggle.addEventListener("click", () => {{
+        if (audio.paused) {{
+          playAudio();
+        }} else {{
+          audio.pause();
+        }}
+      }});
+
+      track.addEventListener("click", (event) => {{
+        if (!audio.duration) return;
+        const rect = track.getBoundingClientRect();
+        const pct = (event.clientX - rect.left) / rect.width;
+        audio.currentTime = Math.min(audio.duration, Math.max(0, pct * audio.duration));
+      }});
+
+      audio.addEventListener("play", () => {{
+        toggle.textContent = "Dừng";
+        label.textContent = "Đang đọc lời nhà vua";
+      }});
+      audio.addEventListener("pause", () => {{
+        toggle.textContent = "Phát";
+        if (!audio.ended) label.textContent = "Tạm dừng giọng đọc";
+      }});
+      audio.addEventListener("ended", () => {{
+        toggle.textContent = "Phát";
+        label.textContent = "Đã đọc xong";
+      }});
+      audio.addEventListener("loadedmetadata", updateProgress);
+      audio.addEventListener("timeupdate", updateProgress);
+      if (audio.autoplay) playAudio();
+    </script>
+    """
+    components.html(player_html, height=118, scrolling=False)
+
+
 profile_path = DEFAULT_DATASET_DIR / "quang_trung_profile.json"
 chunks_path = DEFAULT_DATASET_DIR / "quang_trung_knowledge.jsonl"
 profile, chunks, retriever = get_runtime(str(DEFAULT_DATASET_DIR), profile_path.stat().st_mtime, chunks_path.stat().st_mtime)
@@ -152,30 +357,12 @@ if "last_answer" not in st.session_state:
     st.session_state.last_answer = ""
 if "pending_query" not in st.session_state:
     st.session_state.pending_query = ""
-if "llm_provider" not in st.session_state:
-    st.session_state.llm_provider = configured_provider()
-
 with st.sidebar:
     st.markdown('<div class="small-label">Nhân vật</div>', unsafe_allow_html=True)
     character_name = st.selectbox("Chọn nhân vật lịch sử", list(CHARACTERS.keys()), label_visibility="collapsed")
     character_id = CHARACTERS[character_name]
     if character_id != "quang_trung":
         st.warning("Bản mẫu hiện chỉ có dữ liệu cho nhà vua. Các nhân vật khác sẽ có quy tắc xưng hô riêng và không tự gọi tên mình.")
-
-    st.markdown("### Mô hình trả lời")
-    provider_index = provider_choices().index(st.session_state.llm_provider)
-    selected_provider = st.selectbox(
-        "Nhà cung cấp AI",
-        provider_choices(),
-        index=provider_index,
-        format_func=provider_status_label,
-        label_visibility="collapsed",
-    )
-    st.session_state.llm_provider = selected_provider
-    if is_configured(selected_provider):
-        st.success(f"API đã cấu hình: {active_provider_label(selected_provider)}")
-    else:
-        st.info("Chưa có key phù hợp; đang dùng bộ trả lời nội bộ.")
 
     st.markdown("### Kịch bản gài bẫy")
     for case in EDGE_CASES:
@@ -193,12 +380,11 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("### Giọng nói")
-    if st.button("Tạo giọng đọc câu trả lời cuối", width="stretch"):
-        result = synthesize(st.session_state.last_answer, "quang_trung")
-        if result.audio_path:
-            st.audio(str(result.audio_path))
-        else:
-            st.info(result.message)
+    if is_tts_configured():
+        st.success("Google TTS đã cấu hình: vi-VN-Neural2-D")
+    else:
+        st.info("Chưa có GOOGLE_TTS_API_KEY; câu trả lời vẫn hiển thị text.")
+    st.caption("Giọng đọc tự tạo ngay khi câu trả lời xuất hiện.")
 
 left, right = st.columns([0.72, 0.28], gap="large")
 
@@ -226,10 +412,20 @@ with left:
         unsafe_allow_html=True,
     )
 
-    for message in st.session_state.messages:
+    for message_index, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             if message["role"] == "assistant":
+                if message.get("audio_base64"):
+                    render_audio_player(
+                        message["audio_base64"],
+                        f"assistant-{message_index}",
+                        autoplay=message.get("autoplay_audio", False),
+                    )
+                    message["autoplay_audio"] = False
+                elif message.get("tts_message"):
+                    safe_tts_message = html.escape(message["tts_message"])
+                    st.markdown(f'<div class="tts-status">{safe_tts_message}</div>', unsafe_allow_html=True)
                 mode = message.get("mode")
                 render_citations(message.get("citations", []))
                 render_verification_status(mode)
@@ -240,16 +436,15 @@ with left:
 
     if query:
         st.session_state.messages.append({"role": "user", "content": query})
-        provider = st.session_state.llm_provider
         generator = (
             lambda question, active_profile, active_citations: generate_character_answer(
                 question,
                 active_profile,
                 active_citations,
-                provider=provider,
             )
-        ) if is_configured(provider) else None
+        ) if is_configured() else None
         result = answer_query(query, profile, retriever, generator=generator)
+        tts_result = synthesize(result["answer"], "quang_trung")
         st.session_state.sprite_state = result["state"]
         st.session_state.last_answer = result["answer"]
         st.session_state.messages.append(
@@ -258,6 +453,10 @@ with left:
                 "content": result["answer"],
                 "citations": result["citations"],
                 "mode": result.get("mode", "retrieval"),
+                "audio_base64": tts_result.audio_base64,
+                "tts_message": tts_result.message,
+                "tts_ok": tts_result.ok,
+                "autoplay_audio": tts_result.ok,
             }
         )
         st.rerun()

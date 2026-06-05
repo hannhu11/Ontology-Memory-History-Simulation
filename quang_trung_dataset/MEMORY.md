@@ -82,7 +82,7 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 - Đã sửa case Blitzkrieg: giữ mốc Kỷ Dậu 1789 là đúng, bác Blitzkrieg/quân Đức là khái niệm đời sau.
 - Đã sửa case Càn Long: trả lời theo hướng ngoại giao mềm, giảng hòa/cầu phong/bang giao, không diễn giải thành mất độc lập hoặc phục tùng tuyệt đối.
 - Đã đổi UI: "Nguồn truy xuất" thành "Tư liệu đối chiếu"; "Năm nguồn" thành "Niên đại tài liệu"; "Mở nguồn" thành "Mở tư liệu"; trạng thái kỹ thuật nằm trong expander "Trạng thái kiểm chứng".
-- Đã lọc hậu xử lý API: nếu Gemini/Groq sinh thuật ngữ cấm hoặc tự gọi tên nhân vật, app bỏ câu đó và dùng fallback nội bộ.
+- Đã lọc hậu xử lý API: nếu nhà cung cấp LLM sinh thuật ngữ cấm hoặc tự gọi tên nhân vật, app bỏ câu đó và dùng fallback nội bộ.
 
 ## Trạng thái cập nhật lần 2 ngày 2026-06-03
 
@@ -114,7 +114,7 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `cd quang_trung_web`
   - `python -m venv .venv`
   - `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`
-  - copy `.env.example` thành `.env` ở local và tự điền `GROQ_API_KEY`, `GEMINI_API_KEY` nếu muốn dùng API thật; không commit `.env`.
+  - copy `.env.example` thành `.env` ở local và tự điền `GEMINI_API_KEY` nếu muốn dùng API thật; không commit `.env`.
   - `.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501`
 - Lệnh build và kiểm thử trước demo:
   - `python .\quang_trung_dataset\build_dataset.py`
@@ -131,3 +131,35 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 - Tuyệt đối không push file key, token, `.env`, credential hoặc artifact vi phạm chuẩn bảo mật lên GitHub.
 - Nếu nhiệm vụ có liên quan đến design, phải đọc và lấy hướng style trong folder `impeccable-main` trước khi áp dụng vào `signsafe`.
 - Mỗi nhiệm vụ/plan hoàn thành phải cập nhật `MEMORY.md` để agent ở chat mới nắm được trạng thái cũ, setup, cách chạy server, thay đổi mới và các ràng buộc đang còn hiệu lực.
+
+## Trạng thái tích hợp TTS ngày 2026-06-05
+
+- Đã nối Google Cloud Text-to-Speech cho web Quang Trung bằng REST API `text:synthesize`, không dùng Service Account JSON và không ghi MP3 ra ổ đĩa.
+- File đã chạm trong nhiệm vụ TTS: `quang_trung_web/tts_provider.py`, `quang_trung_web/app.py`, `quang_trung_web/.env.example`, `quang_trung_web/.gitignore`, `quang_trung_web/requirements.txt`, `quang_trung_web/README.md`, `quang_trung_dataset/MEMORY.md`.
+- Provider TTS cố định `vi-VN-Neural2-D`, `languageCode=vi-VN`, `ssmlGender=MALE`, `audioEncoding=MP3`; hàm `synthesize()` trả `audio_base64` trong session message.
+- UI audio player tự hiện dưới câu trả lời assistant và chỉ đọc đúng `result["answer"]`; không đọc citation, metadata, chunk, trạng thái kiểm chứng hay nội dung UI học thuật.
+- Style audio player học từ `C:\Users\ADMIN\Downloads\Research MLN111\impeccable-main`: lacquer dark surface, kinpaku gold, patina status, hairline border, radius nhỏ, không glass/neon/card lồng nhau.
+- Cấu hình local cần có trong `quang_trung_web/.env`: `GOOGLE_TTS_API_KEY` và tùy chọn `GOOGLE_TTS_TIMEOUT_SECONDS=18`. Không commit `.env`, `.env.*`, key, token, audio cache, `.venv`, `.rag_index` hoặc log.
+- Nếu browser chặn autoplay, player vẫn hiện nút `Phát` để người dùng nghe thủ công.
+
+## Trạng thái Gemini-only và TTS đanh thép ngày 2026-06-05
+
+- Đã tinh gọn LLM provider về một đường duy nhất: Gemini API với model cố định `gemini-3.5-flash`. Lý do chọn: cân bằng tốt giữa chất lượng suy luận, tiếng Việt, độ ổn định production và chi phí trung bình hơn nhóm Pro/Preview.
+- Đã xóa logic provider switching cũ khỏi code active: không còn chọn `auto`, không còn provider order, không còn dropdown chọn model trong sidebar. Người dùng chỉ thấy nhân vật, kịch bản gài bẫy, reload/clear và trạng thái Google TTS.
+- Cấu hình local hiện cần `GEMINI_API_KEY` trong `quang_trung_web/.env`; `.env.example` không còn các biến provider cũ hoặc biến đổi model thủ công.
+- `llm_provider.py` gọi Gemini REST `generateContent` qua `GEMINI_API_KEY`, `temperature=0.32`, `topP=0.9`, `maxOutputTokens=900`, sau đó vẫn lọc nhập vai để không lộ thuật ngữ kỹ thuật hoặc tự gọi tên nhân vật.
+- `tts_provider.py` vẫn dùng Google Cloud TTS `vi-VN-Neural2-D`, nhưng đã thêm `pitch=-4.0` và `speakingRate=1.05` trong `audioConfig` để giọng trầm, chắc và dứt khoát hơn. Audio vẫn trả base64 trong bộ nhớ, không ghi MP3 xuống ổ đĩa.
+- README và `.env.example` đã cập nhật theo Gemini-only. `requirements.txt` không còn dependency provider cũ.
+- Live check bằng `GEMINI_API_KEY` local ngày 2026-06-05 trả `HTTP 403 PERMISSION_DENIED` cho cả `gemini-3.5-flash` và `gemini-2.5-flash`; đây là lỗi quyền truy cập project/key của Google API, không phải lỗi routing provider cũ hay UI. Khi có key/project hợp lệ, code sẽ gọi Gemini-only; nếu API trả lỗi, app vẫn dùng fallback nội bộ để không làm hỏng hội thoại.
+- Khi test hoặc push sau này, luôn kiểm tra `.env` không staged và không đưa API key/token vào code, README, MEMORY, log, `.rag_index`, `.venv` hoặc cache.
+
+## Trạng thái Hybrid Simulacra RAG và SSML TTS ngày 2026-06-05
+
+- Đã sửa lỗi câu tự nhiên như `vua nói qua về 1 trận đánh vua cảm thấy hãnh diện nhất đi`. Nguyên nhân không phải thiếu dataset mà là intent routing không nhận ra `vua` là Quang Trung và không nhận ra cụm `trận đánh/hãnh diện` là câu hỏi hồi tưởng chiến trận.
+- `rag_core.py` đã có `rewrite_query(query, profile)`: mở rộng `vua`, `ngài`, `ông`, `ta` thành Quang Trung / Nguyễn Huệ / Tây Sơn và mở rộng các câu hỏi battle reflection sang Ngọc Hồi - Đống Đa, Rạch Gầm - Xoài Mút.
+- Đã thêm intent `battle_reflection`; các chunk `micro_tactics` và `military` được suy luận là có thể phục vụ battle reflection. Retriever chạy hybrid deterministic bằng original query, rewritten query và canonical variants, sau đó fuse/rerank theo intent, source quality và tag lịch sử.
+- Câu hỏi battle reflection hiện phải trả citation chiến trận, không được lấy nhầm tiền tệ, sĩ phu hoặc ngoại giao. Câu trả lời nội bộ chọn Ngọc Hồi - Đống Đa là ký ức hãnh diện nhất và có thể nhắc thêm Rạch Gầm - Xoài Mút như chiến thắng lớn ở phương Nam.
+- Fallback nội bộ đã đổi từ lối trả lời kiểu bot kiểm chứng sang simulation fallback: với câu hỏi còn rộng nhưng trong thời đại Quang Trung, nhân vật nói đại cục lịch sử bằng vai quân vương. Guardrail vẫn giữ nghiêm với câu sau 1792, truyền thuyết hoặc claim sai mốc.
+- `llm_provider.py` đã cập nhật prompt “bảo toàn Simulacra”: Gemini phải dùng citation làm neo nhưng không được nói `không có dữ liệu`, `không thấy căn cứ`, `tư liệu hiện có`, `ngữ cảnh` hoặc các thuật ngữ kỹ thuật trong lời nhân vật.
+- `tts_provider.py` đã chuyển từ `input.text` sang `input.ssml`, giữ voice `vi-VN-Neural2-D` nhưng bọc câu trả lời bằng `<prosody pitch="-7st" rate="0.90"><emphasis level="strong">...</emphasis></prosody>` để mô phỏng giọng trầm, chậm và uy nghi hơn. Google Cloud TTS hiện không có nhãn giọng miền Trung/Bình Định riêng cho `vi-VN`.
+- `smoke_test.py` đã bổ sung regression tests cho pronoun rewriting, battle reflection retrieval và SSML payload escaping.

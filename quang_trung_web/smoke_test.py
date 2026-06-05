@@ -1,3 +1,5 @@
+import os
+
 from rag_core import (
     DEFAULT_DATASET_DIR,
     VectorRetriever,
@@ -6,6 +8,19 @@ from rag_core import (
     is_smalltalk_query,
     load_chunks,
     load_profile,
+    query_intents,
+    rewrite_query,
+)
+from tts_provider import (
+    GOOGLE_TTS_AUDIO_ENCODING,
+    GOOGLE_TTS_GENDER,
+    GOOGLE_TTS_LANGUAGE_CODE,
+    GOOGLE_TTS_SSML_PITCH,
+    GOOGLE_TTS_SSML_RATE,
+    GOOGLE_TTS_VOICE_NAME,
+    build_ssml,
+    build_tts_payload,
+    synthesize,
 )
 
 
@@ -88,7 +103,51 @@ FORBIDDEN_CHARACTER_TERMS = (
     "mô hình",
     "citation",
     "chunk",
+    "dữ liệu",
+    "ngữ cảnh",
 )
+
+BATTLE_REFLECTION_CASES = [
+    "vua nói qua về 1 trận đánh vua cảm thấy hãnh diện nhất đi",
+    "ngài kể một trận đánh đáng nhớ nhất đi",
+    "ông tự hào nhất về chiến thắng nào?",
+    "ta thắng lớn trận nào khiến người đời còn nhớ?",
+]
+
+
+def validate_tts_provider_contract() -> None:
+    payload = build_tts_payload("Lệnh <tiến> & giữ thế.")
+    if payload["voice"]["name"] != GOOGLE_TTS_VOICE_NAME:
+        raise AssertionError("TTS payload should use fixed Google voice")
+    if payload["voice"]["languageCode"] != GOOGLE_TTS_LANGUAGE_CODE:
+        raise AssertionError("TTS payload should use vi-VN")
+    if payload["voice"]["ssmlGender"] != GOOGLE_TTS_GENDER:
+        raise AssertionError("TTS payload should use male voice")
+    if payload["audioConfig"]["audioEncoding"] != GOOGLE_TTS_AUDIO_ENCODING:
+        raise AssertionError("TTS payload should request MP3")
+    if "text" in payload["input"] or "ssml" not in payload["input"]:
+        raise AssertionError("TTS payload should use SSML input, not plain text")
+    ssml = payload["input"]["ssml"]
+    if f'pitch="{GOOGLE_TTS_SSML_PITCH}"' not in ssml or f'rate="{GOOGLE_TTS_SSML_RATE}"' not in ssml:
+        raise AssertionError("TTS SSML should use the fixed deep voice prosody")
+    if "<emphasis level=\"strong\">" not in ssml:
+        raise AssertionError("TTS SSML should emphasize the full answer")
+    if "&lt;tiến&gt;" not in ssml or "&amp;" not in ssml:
+        raise AssertionError("TTS SSML should XML-escape answer text")
+    if build_ssml("Ta nói.") != (
+        f'<speak><prosody pitch="{GOOGLE_TTS_SSML_PITCH}" rate="{GOOGLE_TTS_SSML_RATE}">'
+        '<emphasis level="strong">Ta nói.</emphasis></prosody></speak>'
+    ):
+        raise AssertionError("TTS SSML builder output changed unexpectedly")
+
+    old_key = os.environ.pop("GOOGLE_TTS_API_KEY", None)
+    try:
+        result = synthesize("Xin chào hậu thế.", "quang_trung")
+        if result.ok or result.audio_base64:
+            raise AssertionError("TTS should not synthesize without GOOGLE_TTS_API_KEY")
+    finally:
+        if old_key is not None:
+            os.environ["GOOGLE_TTS_API_KEY"] = old_key
 
 
 def is_edge_question(question: str) -> bool:
@@ -106,10 +165,40 @@ def is_edge_question(question: str) -> bool:
     )
 
 
+def validate_battle_reflection(profile: dict, retriever: VectorRetriever) -> None:
+    for question in BATTLE_REFLECTION_CASES:
+        rewritten = rewrite_query(question, profile)
+        if "Quang Trung" not in rewritten or "Nguyễn Huệ" not in rewritten or "Tây Sơn" not in rewritten:
+            raise AssertionError(f"Rewritten query should anchor pronouns to Quang Trung: {question}")
+        if "battle_reflection" not in query_intents(question):
+            raise AssertionError(f"Question should resolve to battle_reflection intent: {question}")
+        result = answer_query(question, profile, retriever)
+        print("=" * 80)
+        print("BATTLE_REFLECTION:", question)
+        print("STATE:", result["state"])
+        print("MODE:", result["mode"])
+        print("CITATIONS:", [item["chunk_id"] for item in result["citations"]])
+        print("ANSWER:", result["answer"][:700])
+        if result["state"] != "talking":
+            raise AssertionError(f"Battle reflection should keep talking state: {question}")
+        if not any(term in result["answer"] for term in ("Ngọc Hồi", "Đống Đa", "Rạch Gầm", "Xoài Mút")):
+            raise AssertionError(f"Battle reflection answer should choose a concrete battle: {result['answer']}")
+        if "hãy nêu rõ người, đất và năm tháng" in result["answer"].lower():
+            raise AssertionError("Old mechanical fallback leaked into battle reflection answer")
+        if not result["citations"]:
+            raise AssertionError(f"Battle reflection should return battle citations: {question}")
+        for citation in result["citations"]:
+            citation_intents = set(citation.get("answer_intents", [])) | set(citation.get("tags", []))
+            if not (citation_intents & {"micro_tactics", "military", "battle", "ngoc_hoi_dong_da", "rach_gam_xoai_mut"}):
+                raise AssertionError(f"Battle reflection returned off-intent citation: {citation['chunk_id']}")
+
+
 def main() -> int:
+    validate_tts_provider_contract()
     profile = load_profile(DEFAULT_DATASET_DIR)
     chunks = load_chunks(DEFAULT_DATASET_DIR)
     retriever = VectorRetriever(chunks)
+    validate_battle_reflection(profile, retriever)
     for question in QUESTIONS:
         result = answer_query(question, profile, retriever)
         print("=" * 80)

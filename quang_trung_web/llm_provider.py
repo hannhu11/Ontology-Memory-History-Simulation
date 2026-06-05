@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -18,15 +17,8 @@ except ImportError:
     pass
 
 
-DEFAULT_PROVIDER = "auto"
-DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.5-flash"
 DEFAULT_TIMEOUT_SECONDS = 18.0
-PROVIDER_LABELS = {
-    "auto": "Tự động",
-    "groq": "Groq",
-    "gemini": "Gemini",
-}
 
 FORBIDDEN_CHARACTER_TERMS = (
     "nguồn",
@@ -38,60 +30,18 @@ FORBIDDEN_CHARACTER_TERMS = (
     "mô hình",
     "citation",
     "chunk",
+    "dữ liệu",
+    "ngữ cảnh",
+    "tư liệu hiện có",
 )
 
 
-def provider_choices() -> list[str]:
-    return ["auto", "groq", "gemini"]
+def configured_model() -> str:
+    return MODEL_NAME
 
 
-def auto_provider_order() -> list[str]:
-    raw_order = os.getenv("LLM_PROVIDER_ORDER", "gemini,groq")
-    order = [item.strip().lower() for item in raw_order.split(",")]
-    return [item for item in order if item in {"groq", "gemini"}] or ["gemini", "groq"]
-
-
-def configured_provider() -> str:
-    provider = os.getenv("LLM_PROVIDER", DEFAULT_PROVIDER).strip().lower()
-    return provider if provider in provider_choices() else DEFAULT_PROVIDER
-
-
-def configured_model(provider: str | None = None) -> str:
-    provider = provider or configured_provider()
-    if provider == "gemini":
-        return os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
-    if provider == "auto":
-        return " / ".join(configured_model(item) for item in auto_provider_order())
-    return os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL).strip() or DEFAULT_GROQ_MODEL
-
-
-def is_configured(provider: str | None = None) -> bool:
-    provider = provider or configured_provider()
-    if provider == "auto":
-        return is_configured("groq") or is_configured("gemini")
-    if provider == "gemini":
-        return bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
-    return bool(os.getenv("GROQ_API_KEY"))
-
-
-def provider_status_label(provider: str) -> str:
-    label = PROVIDER_LABELS.get(provider, provider)
-    if provider == "auto":
-        available = [PROVIDER_LABELS[item] for item in auto_provider_order() if is_configured(item)]
-        suffix = ", ".join(available) if available else "chưa có key"
-        return f"{label} ({suffix})"
-    status = "đã có key" if is_configured(provider) else "chưa có key"
-    return f"{label} - {configured_model(provider)} ({status})"
-
-
-def active_provider_label(provider: str | None = None) -> str:
-    provider = provider or configured_provider()
-    if provider == "auto":
-        ordered = " -> ".join(
-            f"{PROVIDER_LABELS[item]} {configured_model(item)}" for item in auto_provider_order()
-        )
-        return f"Tự động: {ordered}"
-    return f"{PROVIDER_LABELS.get(provider, provider)}: {configured_model(provider)}"
+def is_configured() -> bool:
+    return bool(os.getenv("GEMINI_API_KEY"))
 
 
 def request_timeout_seconds() -> float:
@@ -172,12 +122,14 @@ Luôn xưng "ta".
 Chỉ trả lời bằng tiếng Việt có dấu đầy đủ.
 Không dùng tiếng Anh nếu không bắt buộc. Không dùng tiếng Việt không dấu.
 Văn phong: dứt khoát, trang trọng, có khí phách của người cầm quân, nhưng không khoa trương.
-Chỉ dùng các tư liệu đối chiếu được cung cấp bên dưới; không bịa thêm sự kiện, năm, tên người hoặc địa danh.
-Tuyệt đối không dùng các từ/cụm sau trong câu trả lời: nguồn, truy xuất, guardrail, dataset, API, người học, mô hình, citation, chunk.
+Mục tiêu là bảo toàn thực tại mô phỏng: người hỏi phải có cảm giác đang nghe một quân vương đang hồi tưởng và phán đoán, không phải một máy tìm kiếm tư liệu.
+Các tư liệu đối chiếu bên dưới là neo sự thật. Không bịa thêm sự kiện vi mô, năm, tên người hoặc địa danh ngoài phần neo đó.
+Nếu câu hỏi còn rộng hoặc tư liệu neo chưa đủ chi tiết vi mô, không được nói "không có dữ liệu", "không thấy căn cứ", "tư liệu hiện có" hoặc các câu kỹ thuật. Hãy chuyển lên đại cục lịch sử, nói bằng ký ức quân vương: trận đánh, thế nước, lòng quân, phép trị, dân sinh.
+Tuyệt đối không dùng các từ/cụm sau trong câu trả lời: nguồn, truy xuất, guardrail, dataset, API, người học, mô hình, citation, chunk, dữ liệu, ngữ cảnh.
 Nếu câu hỏi yêu cầu xác nhận truyền thuyết, sự kiện thiếu chứng cứ, hoặc sự kiện sau năm {metadata["death_year"]} như Thế chiến, World War, Internet, Facebook, AI, máy bay hiện đại, hãy nói theo vai: "Việc ấy chưa đủ chứng cứ để ta nhận là thật" hoặc "ngươi hỏi chuyện đời sau khi ta đã mất năm 1792".
 Nếu câu hỏi gán sự kiện đúng cho khái niệm đời sau, hãy bác đúng phần đời sau, không bác sự kiện lịch sử đúng.
 Không liệt kê nhan đề tư liệu trong thân câu trả lời; giao diện sẽ hiển thị riêng.
-Trả lời 1-2 đoạn ngắn, tự nhiên, hợp lý cho hậu thế.
+Trả lời 1-2 đoạn ngắn, tự nhiên, có nhịp nói của người thật, hợp lý cho hậu thế.
 """.strip()
 
     user_prompt = f"""
@@ -190,46 +142,20 @@ TƯ LIỆU ĐỐI CHIẾU:
     return system_prompt, user_prompt
 
 
-def _call_groq(system_prompt: str, user_prompt: str) -> str | None:
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        return None
-    try:
-        payload = {
-            "model": configured_model("groq"),
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0.25,
-            "max_completion_tokens": 700,
-        }
-        response = _post_json(
-            "https://api.groq.com/openai/v1/chat/completions",
-            {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            payload,
-        )
-    except Exception:
-        return None
-    return response["choices"][0]["message"]["content"].strip()
-
-
 def _call_gemini(system_prompt: str, user_prompt: str) -> str | None:
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
     try:
-        model = urllib.parse.quote(configured_model("gemini"), safe="")
+        model = urllib.parse.quote(configured_model(), safe="")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         payload = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
             "generationConfig": {
-                "temperature": 0.25,
-                "maxOutputTokens": 700,
+                "temperature": 0.32,
+                "topP": 0.9,
+                "maxOutputTokens": 900,
             },
         }
         response = _post_json(url, {"Content-Type": "application/json"}, payload)
@@ -248,20 +174,12 @@ def _post_json(url: str, headers: dict[str, str], payload: dict) -> dict:
     return json.loads(response_data)
 
 
-def _provider_order(provider: str) -> list[str]:
-    if provider != "auto":
-        return [provider]
-    return auto_provider_order()
-
-
 def generate_character_answer(
     query: str,
     profile: dict,
     citations: list[dict],
-    provider: str | None = None,
 ) -> str | None:
-    provider = provider or configured_provider()
-    if not is_configured(provider):
+    if not is_configured():
         return None
 
     prompts = _build_prompts(query, profile, citations)
@@ -269,20 +187,15 @@ def generate_character_answer(
         return None
     system_prompt, user_prompt = prompts
 
-    callers = {
-        "groq": _call_groq,
-        "gemini": _call_gemini,
-    }
-    for item in _provider_order(provider):
-        if not is_configured(item):
-            continue
-        text = callers[item](system_prompt, user_prompt)
-        if text:
-            cleaned = _enforce_first_person(text, profile)
-            if (
-                not _looks_truncated(cleaned)
-                and not _contains_forbidden_character_terms(cleaned)
-                and not _mentions_self_name(cleaned, profile)
-            ):
-                return cleaned
+    text = _call_gemini(system_prompt, user_prompt)
+    if not text:
+        return None
+
+    cleaned = _enforce_first_person(text, profile)
+    if (
+        not _looks_truncated(cleaned)
+        and not _contains_forbidden_character_terms(cleaned)
+        and not _mentions_self_name(cleaned, profile)
+    ):
+        return cleaned
     return None
