@@ -107,6 +107,7 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 ## Trạng thái backup GitHub ngày 2026-06-05
 
 - Repo backup chính thức: `https://github.com/hannhu11/Ontology-Memory-History-Simulation`.
+- Commit backup đã push: `310f792` trên branch `main`.
 - Nội dung đưa lên repo backup gồm `quang_trung_dataset/` và `quang_trung_web/`, bao gồm dataset JSONL đã build, profile, script build/validate, app Streamlit, RAG core, provider API, smoke test, README và asset UI cần thiết.
 - Tuyệt đối không push `.env`, API key, token, `.venv/`, `.rag_index/`, log Streamlit, `__pycache__/`, file model cache hoặc file build tạm. `.env.example` chỉ giữ tên biến rỗng để người triển khai tự điền local.
 - Khi clone repo mới, chạy từ thư mục gốc:
@@ -122,3 +123,11 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `cd quang_trung_web; .\.venv\Scripts\python.exe .\smoke_test.py`
 - `.rag_index/quang_trung` là cache ChromaDB local, tự rebuild khi JSONL đổi; không cần và không được đưa lên GitHub.
 - Mỗi khi hoàn thành một plan hoặc nhiệm vụ đáng kể, cập nhật file này trước khi commit/push để agent ở chat mới đọc một file là biết trạng thái dự án, cách setup và các ràng buộc hiện tại.
+
+## Ràng buộc làm việc do user nhắc ngày 2026-06-05
+
+- Không tự ý sửa, xóa hoặc thay đổi backend, frontend hay chức năng ngoài phạm vi user yêu cầu. Nếu cần đụng vào một phần không nằm trong yêu cầu rõ ràng, phải hỏi user trước.
+- Được phép copy logic/chức năng và được phép đụng backend/frontend trong đúng phần được yêu cầu nếu cần để hoàn thành nhiệm vụ.
+- Tuyệt đối không push file key, token, `.env`, credential hoặc artifact vi phạm chuẩn bảo mật lên GitHub.
+- Nếu nhiệm vụ có liên quan đến design, phải đọc và lấy hướng style trong folder `impeccable-main` trước khi áp dụng vào `signsafe`.
+- Mỗi nhiệm vụ/plan hoàn thành phải cập nhật `MEMORY.md` để agent ở chat mới nắm được trạng thái cũ, setup, cách chạy server, thay đổi mới và các ràng buộc đang còn hiệu lực.
