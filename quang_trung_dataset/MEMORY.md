@@ -237,3 +237,9 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 - Trước khi push đã chạy secret scan trong `github_dataset_repo`, không phát hiện `GEMINI_API_KEY`, Google TTS key, token hoặc Groq/provider cũ trong staged diff.
 - Server local đã restart ở `http://127.0.0.1:8501`; browser check xác nhận sidebar có đủ 5 nhân vật, selectbox/profile khớp sau khi clear session, audio status chỉ còn một block theo nhân vật đang chọn.
 - Nếu chat mới tiếp tục nhiệm vụ, đọc file này trước, sau đó kiểm tra `git -C github_dataset_repo log -1 --oneline` để biết commit backup mới nhất.
+
+## Hotfix ẩn thông tin TTS trên UI ngày 2026-06-06
+
+- User yêu cầu không để lộ provider/model TTS trong giao diện. UI không được hiển thị các chuỗi như `Google TTS`, `vi-VN-Neural2-D`, hoặc block sidebar `Giọng nói / Google TTS đã cấu hình`.
+- `quang_trung_web/app.py` đã đổi nhãn audio player thành `Âm thanh nhập vai` và `Đang đọc lời nhân vật`; đã xóa toàn bộ khối sidebar `Giọng nói`, status cấu hình TTS và caption tự động đọc.
+- Cấu hình kỹ thuật trong `tts_provider.py` vẫn giữ để gọi API, nhưng chỉ nằm ở backend/source code; người dùng cuối không thấy provider/model/voice name trong web.

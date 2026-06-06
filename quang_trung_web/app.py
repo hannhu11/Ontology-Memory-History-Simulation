@@ -14,7 +14,7 @@ from character_registry import (
     profile_path_for,
 )
 from rag_core import VectorRetriever, answer_query, load_chunks, load_profile
-from tts_provider import is_configured as is_tts_configured, synthesize
+from tts_provider import synthesize
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -166,7 +166,7 @@ def render_audio_player(audio_base64: str, message_id: str, autoplay: bool = Tru
       <div class="qt-tts-top">
         <button id="qt-tts-toggle" type="button" aria-label="Phát giọng đọc">Phát</button>
         <div class="qt-tts-copy">
-          <div class="qt-tts-kicker"><span></span> Google TTS · vi-VN-Neural2-D</div>
+          <div class="qt-tts-kicker"><span></span> Âm thanh nhập vai</div>
           <div id="qt-tts-label" class="qt-tts-label">Bấm phát nếu trình duyệt chặn tự động đọc</div>
         </div>
         <div id="qt-tts-time" class="qt-tts-time">0:00</div>
@@ -339,7 +339,7 @@ def render_audio_player(audio_base64: str, message_id: str, autoplay: bool = Tru
 
       audio.addEventListener("play", () => {{
         toggle.textContent = "Dừng";
-        label.textContent = "Đang đọc lời nhà vua";
+        label.textContent = "Đang đọc lời nhân vật";
       }});
       audio.addEventListener("pause", () => {{
         toggle.textContent = "Phát";
@@ -402,13 +402,6 @@ with st.sidebar:
         st.session_state.last_answer = ""
         st.session_state.pending_query = ""
         st.rerun()
-
-    st.markdown("### Giọng nói")
-    if is_tts_configured():
-        st.success(f"Google TTS đã cấu hình: {character_config['voice_label']}")
-    else:
-        st.info("Chưa có GOOGLE_TTS_API_KEY; câu trả lời vẫn hiển thị text.")
-    st.caption("Giọng đọc tự tạo ngay khi câu trả lời xuất hiện.")
 
 profile_path = profile_path_for(st.session_state.character_id)
 chunks_path = knowledge_path_for(st.session_state.character_id)
