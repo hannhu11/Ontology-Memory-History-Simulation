@@ -229,3 +229,11 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501`
 - Nếu UI còn hiện câu trả lời cũ sau khi patch, bấm `Xóa hội thoại`, hard refresh trình duyệt, hoặc restart process Streamlit. Session cũ không tự cập nhật câu đã sinh.
 - Không push `.env`, API key, token, `.venv`, `.rag_index`, `__pycache__`, log, cache model hoặc file tạm. Mọi plan/nhiệm vụ xong phải cập nhật `MEMORY.md` trước commit/push.
+
+## Trạng thái backup GitHub multi-character ngày 2026-06-06
+
+- Đã đồng bộ `quang_trung_web/`, `quang_trung_dataset/` và 4 dataset mới vào repo backup `https://github.com/hannhu11/Ontology-Memory-History-Simulation`.
+- Commit code/dataset chính đã push lên branch `main`: `bf5b679` (`Add multi-character simulacra RAG`).
+- Trước khi push đã chạy secret scan trong `github_dataset_repo`, không phát hiện `GEMINI_API_KEY`, Google TTS key, token hoặc Groq/provider cũ trong staged diff.
+- Server local đã restart ở `http://127.0.0.1:8501`; browser check xác nhận sidebar có đủ 5 nhân vật, selectbox/profile khớp sau khi clear session, audio status chỉ còn một block theo nhân vật đang chọn.
+- Nếu chat mới tiếp tục nhiệm vụ, đọc file này trước, sau đó kiểm tra `git -C github_dataset_repo log -1 --oneline` để biết commit backup mới nhất.
