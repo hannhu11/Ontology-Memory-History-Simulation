@@ -1,5 +1,6 @@
 import os
 
+from character_registry import CHARACTER_REGISTRY
 from rag_core import (
     DEFAULT_DATASET_DIR,
     VectorRetriever,
@@ -15,9 +16,8 @@ from tts_provider import (
     GOOGLE_TTS_AUDIO_ENCODING,
     GOOGLE_TTS_GENDER,
     GOOGLE_TTS_LANGUAGE_CODE,
-    GOOGLE_TTS_SSML_PITCH,
-    GOOGLE_TTS_SSML_RATE,
     GOOGLE_TTS_VOICE_NAME,
+    VOICE_PROFILES,
     build_ssml,
     build_tts_payload,
     synthesize,
@@ -119,9 +119,33 @@ BATTLE_DESCRIPTION_CASES = [
     "ngài kể diễn biến trận Ngọc Hồi - Đống Đa đi",
 ]
 
+MULTI_CHARACTER_CASES = {
+    "tran_hung_dao": {
+        "positive": "Đại Vương kể trận Bạch Đằng năm 1288.",
+        "negative": "Đại Vương dùng Facebook để truyền Hịch tướng sĩ thế nào?",
+        "must_contain": ("Bạch Đằng", "Ô Mã Nhi"),
+    },
+    "nguyen_trai": {
+        "positive": "Tiên sinh nói về nhân nghĩa trong Bình Ngô đại cáo.",
+        "negative": "Tiên sinh dùng AI để viết Bình Ngô đại cáo được không?",
+        "must_contain": ("nhân nghĩa", "dân"),
+    },
+    "ho_chi_minh": {
+        "positive": "Bác ra đi tìm đường cứu nước năm nào?",
+        "negative": "Bác dùng AI để viết Di chúc được không?",
+        "legacy": "Bác nghĩ gì về Chiến dịch Hồ Chí Minh năm 1975?",
+        "must_contain": ("1911", "cứu nước"),
+    },
+    "vo_nguyen_giap": {
+        "positive": "Vì sao Đại tướng chuyển sang đánh chắc tiến chắc ở Điện Biên Phủ?",
+        "negative": "Đại tướng dùng AI để lập kế hoạch chiến dịch thế nào?",
+        "must_contain": ("Điện Biên Phủ", "chắc"),
+    },
+}
+
 
 def validate_tts_provider_contract() -> None:
-    payload = build_tts_payload("Lệnh <tiến> & giữ thế.")
+    payload = build_tts_payload("Lệnh <tiến> & giữ thế.", "quang_trung")
     if payload["voice"]["name"] != GOOGLE_TTS_VOICE_NAME:
         raise AssertionError("TTS payload should use fixed Google voice")
     if payload["voice"]["languageCode"] != GOOGLE_TTS_LANGUAGE_CODE:
@@ -133,17 +157,18 @@ def validate_tts_provider_contract() -> None:
     if "text" in payload["input"] or "ssml" not in payload["input"]:
         raise AssertionError("TTS payload should use SSML input, not plain text")
     ssml = payload["input"]["ssml"]
-    if f'pitch="{GOOGLE_TTS_SSML_PITCH}"' not in ssml or f'rate="{GOOGLE_TTS_SSML_RATE}"' not in ssml:
-        raise AssertionError("TTS SSML should use the fixed deep voice prosody")
+    if 'pitch="-6st"' not in ssml or 'rate="0.95"' not in ssml:
+        raise AssertionError("TTS SSML should use Quang Trung prosody")
     if "<emphasis level=\"strong\">" not in ssml:
         raise AssertionError("TTS SSML should emphasize the full answer")
     if "&lt;tiến&gt;" not in ssml or "&amp;" not in ssml:
         raise AssertionError("TTS SSML should XML-escape answer text")
-    if build_ssml("Ta nói.") != (
-        f'<speak><prosody pitch="{GOOGLE_TTS_SSML_PITCH}" rate="{GOOGLE_TTS_SSML_RATE}">'
-        '<emphasis level="strong">Ta nói.</emphasis></prosody></speak>'
-    ):
-        raise AssertionError("TTS SSML builder output changed unexpectedly")
+    for character_id, voice_profile in VOICE_PROFILES.items():
+        character_ssml = build_ssml("Ta nói.", character_id)
+        if f'pitch="{voice_profile["pitch"]}"' not in character_ssml:
+            raise AssertionError(f"{character_id} SSML missing pitch")
+        if f'rate="{voice_profile["rate"]}"' not in character_ssml:
+            raise AssertionError(f"{character_id} SSML missing rate")
 
     old_key = os.environ.pop("GOOGLE_TTS_API_KEY", None)
     try:
@@ -229,13 +254,60 @@ def validate_battle_description(profile: dict, retriever: VectorRetriever) -> No
                 raise AssertionError(f"Battle description returned off-intent citation: {citation['chunk_id']}")
 
 
+def validate_multi_character_runtime() -> None:
+    for character_id, case in MULTI_CHARACTER_CASES.items():
+        profile = load_profile(character_id)
+        chunks = load_chunks(character_id)
+        retriever = VectorRetriever(chunks, character_id=character_id)
+        positive = answer_query(case["positive"], profile, retriever)
+        print("=" * 80)
+        print("MULTI_POSITIVE:", character_id, case["positive"])
+        print("STATE:", positive["state"])
+        print("MODE:", positive["mode"])
+        print("CITATIONS:", [item["chunk_id"] for item in positive["citations"]])
+        print("ANSWER:", positive["answer"][:700])
+        if positive["state"] != "talking":
+            raise AssertionError(f"{character_id} positive case should be talking")
+        if not positive["citations"]:
+            raise AssertionError(f"{character_id} positive case should return citations")
+        if any(item.get("char_id") != character_id for item in positive["citations"]):
+            raise AssertionError(f"{character_id} citations leaked from another character")
+        lowered_answer = positive["answer"].lower()
+        if not any(term.lower() in lowered_answer for term in case["must_contain"]):
+            raise AssertionError(f"{character_id} positive answer lacks expected detail: {positive['answer']}")
+
+        negative = answer_query(case["negative"], profile, retriever)
+        print("=" * 80)
+        print("MULTI_NEGATIVE:", character_id, case["negative"])
+        print("STATE:", negative["state"])
+        print("MODE:", negative["mode"])
+        print("ANSWER:", negative["answer"][:500])
+        if negative["mode"] != "guardrail" or negative["state"] != "confused":
+            raise AssertionError(f"{character_id} modern-tech case should be guardrail")
+
+        if case.get("legacy"):
+            legacy = answer_query(case["legacy"], profile, retriever)
+            print("=" * 80)
+            print("MULTI_LEGACY:", character_id, case["legacy"])
+            print("STATE:", legacy["state"])
+            print("MODE:", legacy["mode"])
+            print("ANSWER:", legacy["answer"][:500])
+            if legacy["state"] != "talking":
+                raise AssertionError(f"{character_id} legacy-afterlife case should remain talking")
+            if "đi xa" not in legacy["answer"].lower() and "sau khi" not in legacy["answer"].lower():
+                raise AssertionError("Legacy-afterlife answer should not speak as a direct witness")
+
+
 def main() -> int:
     validate_tts_provider_contract()
+    if set(CHARACTER_REGISTRY) != set(VOICE_PROFILES):
+        raise AssertionError("Character registry and voice profiles should contain the same IDs")
     profile = load_profile(DEFAULT_DATASET_DIR)
     chunks = load_chunks(DEFAULT_DATASET_DIR)
-    retriever = VectorRetriever(chunks)
+    retriever = VectorRetriever(chunks, character_id="quang_trung")
     validate_battle_reflection(profile, retriever)
     validate_battle_description(profile, retriever)
+    validate_multi_character_runtime()
     for question in QUESTIONS:
         result = answer_query(question, profile, retriever)
         print("=" * 80)

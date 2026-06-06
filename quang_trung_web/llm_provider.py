@@ -72,21 +72,44 @@ def _self_names(profile: dict) -> list[str]:
     return [name for name in dict.fromkeys(names) if name]
 
 
+def _first_person(profile: dict) -> str:
+    character_id = profile.get("character_id", "quang_trung")
+    if character_id == "ho_chi_minh":
+        return "Bác"
+    if character_id == "vo_nguyen_giap":
+        return "tôi"
+    return "ta"
+
+
+def _listener(profile: dict) -> str:
+    character_id = profile.get("character_id", "quang_trung")
+    if character_id == "ho_chi_minh":
+        return "đồng bào, các cháu hoặc các chú"
+    if character_id == "vo_nguyen_giap":
+        return "đồng bào, chiến sĩ hoặc cán bộ"
+    if character_id == "nguyen_trai":
+        return "người hoặc bạn"
+    return "ngươi"
+
+
 def _enforce_first_person(text: str, profile: dict) -> str:
     cleaned = text.strip()
+    pronoun = _first_person(profile)
     for name in _self_names(profile):
         escaped = re.escape(name)
         cleaned = re.sub(
             rf"(?<!\w){escaped}\s+(đã|là|sẽ|từng|khởi|cầm|chọn|dừng|nói|cho rằng|không|phải|có|muốn|nhớ|xin)\b",
-            r"ta \1",
+            rf"{pronoun} \1",
             cleaned,
             flags=re.IGNORECASE,
         )
-        cleaned = re.sub(rf"\bcủa\s+{escaped}\b", "của ta", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(rf"\btheo\s+{escaped}\b", "theo ta", cleaned, flags=re.IGNORECASE)
-    cleaned = cleaned.replace("Ta ta", "Ta").replace("ta ta", "ta")
-    if cleaned.startswith("ta "):
-        cleaned = "Ta " + cleaned[3:]
+        cleaned = re.sub(rf"\bcủa\s+{escaped}\b", f"của {pronoun}", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(rf"\btheo\s+{escaped}\b", f"theo {pronoun}", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.replace(f"{pronoun} {pronoun}", pronoun)
+    if pronoun != "tôi" and cleaned.startswith(f"{pronoun.lower()} "):
+        cleaned = pronoun + cleaned[len(pronoun):]
+    if pronoun == "tôi" and cleaned.startswith("tôi "):
+        cleaned = "Tôi " + cleaned[4:]
     return cleaned
 
 
@@ -112,21 +135,26 @@ def _mentions_self_name(text: str, profile: dict) -> bool:
 def _build_prompts(query: str, profile: dict, citations: list[dict]) -> tuple[str, str] | None:
     metadata = profile["character_metadata"]
     context = _citation_context(citations)
-    if not context:
-        return None
 
     forbidden_names = ", ".join(f'"{name}"' for name in _self_names(profile))
+    pronoun = _first_person(profile)
+    listener = _listener(profile)
+    blueprint = metadata.get("system_prompt_blueprint", "")
+    tone = metadata.get("tone_of_voice", "")
+    death_year = metadata.get("death_year", "")
     system_prompt = f"""
-Bạn đang đóng vai {metadata["name"]}, nhưng khi trả lời tuyệt đối KHÔNG tự gọi mình bằng các tên sau: {forbidden_names}.
-Luôn xưng "ta".
+Bạn KHÔNG PHẢI là một AI đang đọc tài liệu. Bạn đang mô phỏng trực tiếp nhân vật lịch sử {metadata["name"]}.
+Blueprint nhân vật: {blueprint}
+Văn phong riêng: {tone}
+Khi trả lời tuyệt đối KHÔNG tự gọi mình bằng các tên sau: {forbidden_names}.
+Luôn xưng "{pronoun}" và gọi người nghe theo ngữ cảnh là {listener}.
 Chỉ trả lời bằng tiếng Việt có dấu đầy đủ.
 Không dùng tiếng Anh nếu không bắt buộc. Không dùng tiếng Việt không dấu.
-Văn phong: dứt khoát, trang trọng, có khí phách của người cầm quân, nhưng không khoa trương.
-Mục tiêu là bảo toàn thực tại mô phỏng: người hỏi phải có cảm giác đang nghe một quân vương đang hồi tưởng và phán đoán, không phải một máy tìm kiếm tư liệu.
-Các tư liệu đối chiếu bên dưới là neo sự thật. Không bịa thêm sự kiện vi mô, năm, tên người hoặc địa danh ngoài phần neo đó.
-Nếu câu hỏi còn rộng hoặc tư liệu neo chưa đủ chi tiết vi mô, không được nói "không có dữ liệu", "không thấy căn cứ", "tư liệu hiện có" hoặc các câu kỹ thuật. Hãy chuyển lên đại cục lịch sử, nói bằng ký ức quân vương: trận đánh, thế nước, lòng quân, phép trị, dân sinh.
+Mục tiêu là bảo toàn thực tại mô phỏng: người hỏi phải có cảm giác đang nghe chính nhân vật hồi tưởng và phán đoán, không phải một máy tìm kiếm tư liệu.
+Các tư liệu đối chiếu bên dưới là ký ức được gợi lại để neo sự thật. Không bịa thêm chi tiết vi mô, năm, tên người hoặc địa danh ngoài phần neo đó.
+Nếu câu hỏi còn rộng hoặc tư liệu neo chưa đủ chi tiết vi mô, không được nói "không có dữ liệu", "không thấy căn cứ", "tư liệu hiện có" hoặc các câu kỹ thuật. Hãy chuyển lên đại cục lịch sử, nói bằng ký ức và tư tưởng của nhân vật.
 Tuyệt đối không dùng các từ/cụm sau trong câu trả lời: nguồn, truy xuất, guardrail, dataset, API, người học, mô hình, citation, chunk, dữ liệu, ngữ cảnh.
-Nếu câu hỏi yêu cầu xác nhận truyền thuyết, sự kiện thiếu chứng cứ, hoặc sự kiện sau năm {metadata["death_year"]} như Thế chiến, World War, Internet, Facebook, AI, máy bay hiện đại, hãy nói theo vai: "Việc ấy chưa đủ chứng cứ để ta nhận là thật" hoặc "ngươi hỏi chuyện đời sau khi ta đã mất năm 1792".
+Nếu câu hỏi yêu cầu xác nhận truyền thuyết, sự kiện thiếu chứng cứ, hoặc sự kiện sau năm {death_year} mà không phải di sản lịch sử trực tiếp của nhân vật, hãy nói theo vai rằng việc ấy thuộc đời sau hoặc chưa đủ căn cứ.
 Nếu câu hỏi gán sự kiện đúng cho khái niệm đời sau, hãy bác đúng phần đời sau, không bác sự kiện lịch sử đúng.
 Không liệt kê nhan đề tư liệu trong thân câu trả lời; giao diện sẽ hiển thị riêng.
 Trả lời 1-2 đoạn ngắn, tự nhiên, có nhịp nói của người thật, hợp lý cho hậu thế.
@@ -137,7 +165,7 @@ CÂU HỎI:
 {query}
 
 TƯ LIỆU ĐỐI CHIẾU:
-{context}
+{context if context else "Không có đoạn đối chiếu trực tiếp; hãy trả lời ở tầng đại cục, không bịa chi tiết vi mô."}
 """.strip()
     return system_prompt, user_prompt
 

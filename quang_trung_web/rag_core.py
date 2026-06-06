@@ -11,10 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
+from character_registry import CHARACTER_REGISTRY, DEFAULT_CHARACTER_ID, get_character_config, knowledge_path_for, profile_path_for
+
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_DATASET_DIR = ROOT_DIR.parent / "quang_trung_dataset"
-DEFAULT_INDEX_DIR = ROOT_DIR / ".rag_index" / "quang_trung"
+DEFAULT_INDEX_ROOT = ROOT_DIR / ".rag_index"
+DEFAULT_INDEX_DIR = DEFAULT_INDEX_ROOT / DEFAULT_CHARACTER_ID
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_SCORE_THRESHOLD = 0.42
 DEFAULT_TOP_K = 4
@@ -267,6 +270,13 @@ INTENT_QUERY_TERMS = {
         "xiem",
         "hanh quan",
         "than toc",
+        "dien bien phu",
+        "danh chac tien chac",
+        "danh nhanh thang nhanh",
+        "danh nhanh giai quyet nhanh",
+        "keo phao",
+        "tap doan cu diem",
+        "thuc dan phap",
     },
     "anachronism": {
         "the chien",
@@ -277,7 +287,6 @@ INTENT_QUERY_TERMS = {
         "internet",
         "facebook",
         "ai",
-        "dien bien phu",
         "may bay",
         "dien thoai",
     },
@@ -322,9 +331,12 @@ def configured_embedding_model() -> str:
     return os.getenv("RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip() or DEFAULT_EMBEDDING_MODEL
 
 
-def configured_index_dir() -> Path:
+def configured_index_dir(character_id: str = DEFAULT_CHARACTER_ID) -> Path:
     raw_value = os.getenv("RAG_INDEX_DIR")
-    return Path(raw_value) if raw_value else DEFAULT_INDEX_DIR
+    if not raw_value:
+        return DEFAULT_INDEX_ROOT / character_id
+    base = Path(raw_value)
+    return base if base.name == character_id else base / character_id
 
 
 def query_intents(query: str) -> set[str]:
@@ -336,7 +348,7 @@ def query_intents(query: str) -> set[str]:
     }
     if is_diplomacy_query(query):
         intents.add("diplomacy")
-    if is_anachronistic_warfare_query(query) or is_out_of_period(query):
+    if is_anachronistic_warfare_query(query):
         intents.add("anachronism")
     for primary in (
         "anachronism",
@@ -389,6 +401,10 @@ def is_battle_description_query(query: str) -> bool:
     )
 
 
+def profile_character_id(profile: dict | None) -> str:
+    return (profile or {}).get("character_id", DEFAULT_CHARACTER_ID)
+
+
 def rewrite_query(query: str, profile: dict | None = None) -> str:
     normalized = normalize(query)
     additions: list[str] = []
@@ -407,16 +423,18 @@ def rewrite_query(query: str, profile: dict | None = None) -> str:
 
     if any(has_phrase(normalized, term) for term in ("vua", "nha vua", "ngai", "ong", "ta")):
         additions.append(name_blob)
-    if is_battle_reflection_query(query):
+    if profile_character_id(profile) == "quang_trung" and is_battle_reflection_query(query):
         additions.append(
             "trận đánh hãnh diện tự hào chiến thắng lớn Ngọc Hồi Đống Đa Kỷ Dậu 1789 "
             "Rạch Gầm Xoài Mút năm 1785 quân Thanh quân Xiêm"
         )
-    elif is_battle_description_query(query):
+    elif profile_character_id(profile) == "quang_trung" and is_battle_description_query(query):
         additions.append(
             "trận Ngọc Hồi Đống Đa mùa xuân Kỷ Dậu 1789 quân Thanh Tôn Sĩ Nghị "
             "Hà Hồi Ngọc Hồi Đống Đa tượng binh hỏa hổ đại bác mộc rơm ướt năm đạo quân"
         )
+    elif additions:
+        additions.append("tiểu sử sự nghiệp tư tưởng chiến lược lịch sử")
     if not additions:
         return query
     return " ".join([query, *additions])
@@ -424,7 +442,7 @@ def rewrite_query(query: str, profile: dict | None = None) -> str:
 
 def query_variants(query: str, profile: dict | None = None) -> list[str]:
     variants = [query, rewrite_query(query, profile)]
-    if is_battle_reflection_query(query):
+    if profile_character_id(profile) == "quang_trung" and is_battle_reflection_query(query):
         variants.extend(
             [
                 "Quang Trung Nguyễn Huệ Tây Sơn trận Ngọc Hồi Đống Đa Kỷ Dậu 1789 chiến thắng hãnh diện nhất đại phá quân Thanh",
@@ -432,7 +450,7 @@ def query_variants(query: str, profile: dict | None = None) -> list[str]:
                 "Quang Trung Nguyễn Huệ nghệ thuật quân sự chiến thắng lớn trận đánh đáng nhớ",
             ]
         )
-    elif is_battle_description_query(query):
+    elif profile_character_id(profile) == "quang_trung" and is_battle_description_query(query):
         variants.extend(
             [
                 "Quang Trung Nguyễn Huệ trận Ngọc Hồi Đống Đa Kỷ Dậu 1789 diễn biến đại phá quân Thanh Tôn Sĩ Nghị",
@@ -545,15 +563,51 @@ def is_smalltalk_query(query: str) -> bool:
     )
 
 
-def load_profile(dataset_dir: Path | str = DEFAULT_DATASET_DIR) -> dict:
-    dataset_dir = Path(dataset_dir)
-    return json.loads((dataset_dir / "quang_trung_profile.json").read_text(encoding="utf-8"))
+def resolve_character_id(character_or_dir: Path | str = DEFAULT_CHARACTER_ID) -> str:
+    if isinstance(character_or_dir, Path):
+        return DEFAULT_CHARACTER_ID
+    candidate = str(character_or_dir)
+    if candidate in CHARACTER_REGISTRY:
+        return candidate
+    return DEFAULT_CHARACTER_ID
 
 
-def load_chunks(dataset_dir: Path | str = DEFAULT_DATASET_DIR) -> list[dict]:
-    dataset_dir = Path(dataset_dir)
+def resolve_dataset_dir(character_or_dir: Path | str = DEFAULT_CHARACTER_ID) -> Path:
+    if isinstance(character_or_dir, Path):
+        return character_or_dir
+    candidate = str(character_or_dir)
+    if "\\" in candidate or "/" in candidate:
+        return Path(candidate)
+    return get_character_config(candidate)["dataset_dir"]
+
+
+def _profile_path(character_or_dir: Path | str = DEFAULT_CHARACTER_ID) -> Path:
+    if isinstance(character_or_dir, Path) or "\\" in str(character_or_dir) or "/" in str(character_or_dir):
+        dataset_dir = resolve_dataset_dir(character_or_dir)
+        matches = sorted(dataset_dir.glob("*_profile.json"))
+        if not matches:
+            raise FileNotFoundError(f"No *_profile.json found in {dataset_dir}")
+        return matches[0]
+    return profile_path_for(str(character_or_dir))
+
+
+def _knowledge_path(character_or_dir: Path | str = DEFAULT_CHARACTER_ID) -> Path:
+    if isinstance(character_or_dir, Path) or "\\" in str(character_or_dir) or "/" in str(character_or_dir):
+        dataset_dir = resolve_dataset_dir(character_or_dir)
+        matches = sorted(dataset_dir.glob("*_knowledge.jsonl"))
+        if not matches:
+            raise FileNotFoundError(f"No *_knowledge.jsonl found in {dataset_dir}")
+        return matches[0]
+    return knowledge_path_for(str(character_or_dir))
+
+
+def load_profile(character_id: Path | str = DEFAULT_CHARACTER_ID) -> dict:
+    return json.loads(_profile_path(character_id).read_text(encoding="utf-8"))
+
+
+def load_chunks(character_id: Path | str = DEFAULT_CHARACTER_ID) -> list[dict]:
     chunks = []
-    with (dataset_dir / "quang_trung_knowledge.jsonl").open("r", encoding="utf-8") as handle:
+    with _knowledge_path(character_id).open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if line:
@@ -684,9 +738,11 @@ class VectorRetriever:
         persist_dir: Path | str | None = None,
         model_name: str | None = None,
         score_threshold: float | None = None,
+        character_id: str = DEFAULT_CHARACTER_ID,
     ):
         self.chunks = list(chunks)
-        self.persist_dir = Path(persist_dir) if persist_dir else configured_index_dir()
+        self.character_id = character_id
+        self.persist_dir = Path(persist_dir) if persist_dir else configured_index_dir(character_id)
         self.model_name = model_name or configured_embedding_model()
         self.score_threshold = score_threshold if score_threshold is not None else configured_score_threshold()
         self._fallback = SimpleRetriever(self.chunks)
@@ -735,7 +791,7 @@ class VectorRetriever:
             self.persist_dir.mkdir(parents=True, exist_ok=True)
             client = chromadb.PersistentClient(path=str(self.persist_dir))
             collection = client.get_or_create_collection(
-                name="quang_trung",
+                name=self.character_id,
                 metadata={"hnsw:space": "cosine"},
             )
             fingerprint = self._dataset_fingerprint()
@@ -823,11 +879,46 @@ class VectorRetriever:
         return self._fallback.search(query, top_k=top_k, min_score=0.01 if intents else threshold, profile=profile)
 
 
-def is_out_of_period(query: str, death_year: int = 1792) -> bool:
+def is_legacy_afterlife_query(query: str, profile: dict | None = None) -> bool:
+    normalized = normalize(query)
+    character_id = profile_character_id(profile)
+    if character_id == "ho_chi_minh":
+        return any(
+            has_phrase(normalized, term)
+            for term in ("chien dich ho chi minh", "30 4 1975", "30/4/1975", "nam 1975", "thong nhat")
+        )
+    return False
+
+
+def is_out_of_period(query: str, death_year: int = 1792, profile: dict | None = None) -> bool:
+    if is_legacy_afterlife_query(query, profile):
+        return False
     normalized = normalize(query)
     if re.search(r"\bA\.?I\.?\b", query):
         return True
-    if any(has_phrase(normalized, term) for term in MODERN_TERMS):
+    dated_terms = {
+        "dien bien phu": 1954,
+        "the chien": 1914,
+        "the chien thu nhat": 1914,
+        "the chien thu 1": 1914,
+        "the chien thu hai": 1939,
+        "the chien thu 2": 1939,
+        "chien tranh the gioi": 1914,
+        "chien tranh the gioi thu nhat": 1914,
+        "chien tranh the gioi thu 1": 1914,
+        "chien tranh the gioi thu hai": 1939,
+        "chien tranh the gioi thu 2": 1939,
+        "world war": 1914,
+        "world war i": 1914,
+        "world war ii": 1939,
+        "ww1": 1914,
+        "ww2": 1939,
+    }
+    for term in MODERN_TERMS:
+        if not has_phrase(normalized, term):
+            continue
+        if term in dated_terms:
+            return death_year < dated_terms[term]
         return True
     years = [int(match) for match in re.findall(r"\b(1[8-9]\d{2}|20\d{2}|21\d{2})\b", normalized)]
     return any(year > death_year for year in years)
@@ -904,8 +995,101 @@ def is_generated_answer_acceptable(query: str, answer: str) -> bool:
     return True
 
 
+def first_person_for(profile: dict) -> str:
+    character_id = profile_character_id(profile)
+    if character_id == "ho_chi_minh":
+        return "Bác"
+    if character_id == "vo_nguyen_giap":
+        return "tôi"
+    return "ta"
+
+
+def listener_for(profile: dict) -> str:
+    character_id = profile_character_id(profile)
+    if character_id == "ho_chi_minh":
+        return "các cháu"
+    if character_id == "vo_nguyen_giap":
+        return "đồng chí"
+    if character_id == "nguyen_trai":
+        return "người"
+    return "ngươi"
+
+
+def build_afterlife_answer(query: str, profile: dict) -> str:
+    metadata = profile["character_metadata"]
+    pronoun = first_person_for(profile)
+    listener = listener_for(profile)
+    if is_legacy_afterlife_query(query, profile):
+        return (
+            f"Việc ấy diễn ra sau khi {pronoun} đã đi xa năm {metadata['death_year']}. "
+            "Nếu xét theo sử sách đời sau, đó là một dấu mốc hoàn thành khát vọng thống nhất non sông, "
+            "điều mà cả đời người cách mạng luôn mong mỏi. Nhưng phải nói cho đúng: "
+            f"{pronoun} không phải người trực tiếp chứng kiến ngày ấy."
+        )
+    return (
+        f"{listener.capitalize()} hỏi chuyện đời sau khi {pronoun} đã mất năm {metadata['death_year']}. "
+        f"Việc ấy không thuộc đời sống trực tiếp của {pronoun}; nếu muốn bàn, phải đặt nó trong sử sách của thời sau, "
+        "chớ gán thành ký ức của người đã khuất."
+    )
+
+
+def build_identity_answer(profile: dict, hits: list[Hit]) -> str:
+    metadata = profile["character_metadata"]
+    pronoun = first_person_for(profile)
+    name = metadata["name"]
+    era = metadata.get("era", "")
+    traits = ", ".join(metadata.get("personality_traits", [])[:3])
+    facts = [hit.chunk.get("fact", "") for hit in hits if hit.chunk.get("fact")]
+    if facts:
+        return f"{pronoun.capitalize()} là {name}, sống trong thời {era}. " + " ".join(facts[:2])
+    return f"{pronoun.capitalize()} là {name}, sống trong thời {era}. Nếu muốn hiểu đời {pronoun}, hãy hỏi vào sự nghiệp, tư tưởng và những việc lớn đã gắn với vận nước."
+
+
+def build_generic_character_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
+    metadata = profile["character_metadata"]
+    pronoun = first_person_for(profile)
+    listener = listener_for(profile)
+    if is_anachronistic_warfare_query(query) or is_out_of_period(query, metadata["death_year"], profile):
+        return build_afterlife_answer(query, profile), "confused"
+    if is_unsupported_claim(query):
+        return (
+            f"Việc ấy {pronoun} chưa thể nhận là thật. Lịch sử liên quan đến danh dự quốc gia và con người, "
+            "nên điều chưa đủ căn cứ thì phải nói là chưa đủ căn cứ."
+        ), "confused"
+    if is_smalltalk_query(query) and not is_identity_query(query):
+        topics = ", ".join(
+            hit.chunk.get("topic_title", "")
+            for hit in hits[:3]
+            if hit.chunk.get("topic_title")
+        )
+        if not topics:
+            topics = "thân thế, sự nghiệp, tư tưởng và những việc lớn trong đời"
+        return f"{pronoun.capitalize()} đang nghe. {listener.capitalize()} cứ hỏi về {topics}; điều gì có thể nói rõ thì {pronoun} sẽ nói rõ.", "talking"
+    if is_identity_query(query):
+        return build_identity_answer(profile, hits), "talking"
+    if is_legacy_afterlife_query(query, profile):
+        facts = [hit.chunk.get("fact", "").strip() for hit in hits if hit.chunk.get("fact")]
+        answer = build_afterlife_answer(query, profile)
+        if facts:
+            answer += " Sử sách đời sau ghi: " + " ".join(facts[:2])
+        return answer, "talking"
+    if hits:
+        facts = [hit.chunk.get("fact", "").strip() for hit in hits if hit.chunk.get("fact")]
+        if facts:
+            lead = f"{pronoun.capitalize()} nói việc ấy phải nhìn vào đại cục của thời {metadata.get('era', 'đời ta')}."
+            return f"{lead} " + " ".join(facts[:3]), "talking"
+    traits = ", ".join(metadata.get("personality_traits", [])[:3]) or "trách nhiệm với dân nước"
+    return (
+        f"Câu hỏi ấy còn rộng. Nếu xét theo đời {pronoun}, điều cốt yếu nằm ở {traits}. "
+        "Hãy hỏi rõ hơn vào một việc, một chiến dịch, một văn kiện hoặc một lựa chọn lớn, "
+        f"{pronoun} sẽ nói bằng ký ức lịch sử của mình."
+    ), "talking"
+
+
 def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
     metadata = profile["character_metadata"]
+    if profile_character_id(profile) != DEFAULT_CHARACTER_ID:
+        return build_generic_character_answer(query, profile, hits)
     query_norm = normalize(query)
     if is_anachronistic_warfare_query(query):
         answer = (
@@ -915,7 +1099,7 @@ def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
         )
         return answer, "confused"
 
-    if is_out_of_period(query, metadata["death_year"]):
+    if is_out_of_period(query, metadata["death_year"], profile):
         answer = (
             "Ngươi hỏi chuyện đời sau khi ta đã mất năm 1792; đem việc ấy gán cho ta là hồ đồ. "
             "Ta từng lo việc nước Nam cuối thế kỷ XVIII, đánh quân Xiêm, dẹp quân Thanh, dựng lại phép trị nước. "
@@ -1132,7 +1316,7 @@ def answer_query(
             "mode": "guardrail",
         }
 
-    if is_out_of_period(query, metadata["death_year"]):
+    if is_out_of_period(query, metadata["death_year"], profile):
         answer, state = build_answer(query, profile, [])
         guardrail_chunks = [chunk for chunk in retriever.chunks if "guardrail" in chunk.get("tags", [])]
         return {
@@ -1154,8 +1338,16 @@ def answer_query(
 
     if is_identity_query(query):
         chunk_map = {chunk.get("chunk_id"): chunk for chunk in retriever.chunks}
-        identity_ids = ("qt_kb_001", "qt_kb_012", "qt_kb_032", "qt_kb_043")
-        hits = [Hit(chunk_map[chunk_id], 1.0) for chunk_id in identity_ids if chunk_id in chunk_map][:top_k]
+        if profile_character_id(profile) == DEFAULT_CHARACTER_ID:
+            identity_ids = ("qt_kb_001", "qt_kb_012", "qt_kb_032", "qt_kb_043")
+            hits = [Hit(chunk_map[chunk_id], 1.0) for chunk_id in identity_ids if chunk_id in chunk_map][:top_k]
+        else:
+            identity_chunks = [
+                chunk
+                for chunk in retriever.chunks
+                if chunk_intents(chunk) & {"identity", "tieu_su", "profile"} or str(chunk.get("chunk_id", "")).endswith("_001")
+            ]
+            hits = [Hit(chunk, 1.0) for chunk in identity_chunks[:top_k]]
     else:
         hits = retriever.search(query, top_k=top_k, profile=profile)
     if has_uncovered_year_claim(query, hits):
@@ -1173,7 +1365,7 @@ def answer_query(
     answer, state = build_answer(query, profile, hits)
     citations = [hit.chunk for hit in hits]
     mode = "retrieval"
-    if generator and citations and state == "talking" and not is_identity_query(query):
+    if generator and state == "talking" and not is_identity_query(query) and not is_legacy_afterlife_query(query, profile):
         generated = generator(query, profile, citations)
         if generated and is_generated_answer_acceptable(query, generated):
             answer = generated

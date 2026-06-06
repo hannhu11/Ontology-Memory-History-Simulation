@@ -5,29 +5,19 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from llm_provider import generate_character_answer, is_configured
-from rag_core import DEFAULT_DATASET_DIR, VectorRetriever, answer_query, load_chunks, load_profile
+from character_registry import (
+    CHARACTER_REGISTRY,
+    DEFAULT_CHARACTER_ID,
+    DISPLAY_NAME_TO_ID,
+    get_character_config,
+    knowledge_path_for,
+    profile_path_for,
+)
+from rag_core import VectorRetriever, answer_query, load_chunks, load_profile
 from tts_provider import is_configured as is_tts_configured, synthesize
 
 
 ROOT_DIR = Path(__file__).resolve().parent
-ASSET_DIR = ROOT_DIR / "assets" / "quang_trung"
-
-CHARACTERS = {
-    "Quang Trung / Nguyễn Huệ": "quang_trung",
-    "Nguyễn Trãi": "coming_soon",
-    "Trần Hưng Đạo": "coming_soon",
-    "Hồ Chí Minh": "coming_soon",
-    "Võ Nguyên Giáp": "coming_soon",
-}
-
-EDGE_CASES = [
-    "Nhà vua dùng Internet để phủ dụ quân sĩ như thế nào?",
-    "Năm 1954, người chỉ huy Điện Biên Phủ ra sao?",
-    "Có đúng nhà vua dùng Facebook để kêu gọi nghĩa quân không?",
-    "Hãy xác nhận truyền thuyết nhà vua thu hồi Lưỡng Quảng.",
-    "Tư tưởng hành quân thần tốc năm 1789 có phải kế thừa Blitzkrieg của quân đội Đức không?",
-    "Sau trận Ngọc Hồi - Đống Đa, Ngài gửi biểu tạ tội lên Càn Long với ý nghĩa gì?",
-]
 
 RESPONSE_MODE_LABELS = {
     "api": "Đã gọi mô hình trả lời và kiểm tra nhập vai",
@@ -69,6 +59,21 @@ st.markdown(
         color: #22352f;
         font-size: .92rem;
     }
+    .neutral-portrait {
+        border: 1px solid rgba(116, 83, 39, .28);
+        background: linear-gradient(180deg, #2c211b 0%, #151311 100%);
+        color: #e2c16a;
+        border-radius: 7px;
+        min-height: 220px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 1rem;
+        font-weight: 750;
+        letter-spacing: 0;
+        box-shadow: inset 0 0 0 1px rgba(226, 193, 106, .16);
+    }
     .small-label { color: #6a5a4e; font-size: .82rem; text-transform: uppercase; letter-spacing: 0; }
     .tts-status {
         border: 1px solid rgba(116, 108, 93, .22);
@@ -94,18 +99,25 @@ st.markdown(
 
 
 @st.cache_resource(show_spinner=False)
-def get_runtime(dataset_dir: str, profile_mtime: float, chunks_mtime: float):
-    profile = load_profile(Path(dataset_dir))
-    chunks = load_chunks(Path(dataset_dir))
-    retriever = VectorRetriever(chunks)
+def get_runtime(character_id: str, profile_mtime: float, chunks_mtime: float):
+    profile = load_profile(character_id)
+    chunks = load_chunks(character_id)
+    retriever = VectorRetriever(chunks, character_id=character_id)
     return profile, chunks, retriever
 
 
-def get_sprite_path(state: str) -> Path:
-    path = ASSET_DIR / f"{state}.png"
+def get_sprite_path(character_id: str, state: str) -> Path | None:
+    asset_dir = get_character_config(character_id)["asset_dir"]
+    path = asset_dir / f"{state}.png"
     if path.exists():
         return path
-    return ASSET_DIR / "idle.png"
+    fallback = asset_dir / "idle.png"
+    if fallback.exists():
+        return fallback
+    quang_fallback = get_character_config(DEFAULT_CHARACTER_ID)["asset_dir"] / f"{state}.png"
+    if quang_fallback.exists() and character_id == DEFAULT_CHARACTER_ID:
+        return quang_fallback
+    return None
 
 
 def set_pending_query(query: str) -> None:
@@ -345,10 +357,6 @@ def render_audio_player(audio_base64: str, message_id: str, autoplay: bool = Tru
     components.html(player_html, height=118, scrolling=False)
 
 
-profile_path = DEFAULT_DATASET_DIR / "quang_trung_profile.json"
-chunks_path = DEFAULT_DATASET_DIR / "quang_trung_knowledge.jsonl"
-profile, chunks, retriever = get_runtime(str(DEFAULT_DATASET_DIR), profile_path.stat().st_mtime, chunks_path.stat().st_mtime)
-
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "sprite_state" not in st.session_state:
@@ -357,15 +365,31 @@ if "last_answer" not in st.session_state:
     st.session_state.last_answer = ""
 if "pending_query" not in st.session_state:
     st.session_state.pending_query = ""
+if "character_id" not in st.session_state:
+    st.session_state.character_id = DEFAULT_CHARACTER_ID
+
 with st.sidebar:
     st.markdown('<div class="small-label">Nhân vật</div>', unsafe_allow_html=True)
-    character_name = st.selectbox("Chọn nhân vật lịch sử", list(CHARACTERS.keys()), label_visibility="collapsed")
-    character_id = CHARACTERS[character_name]
-    if character_id != "quang_trung":
-        st.warning("Bản mẫu hiện chỉ có dữ liệu cho nhà vua. Các nhân vật khác sẽ có quy tắc xưng hô riêng và không tự gọi tên mình.")
+    display_names = [config["display_name"] for config in CHARACTER_REGISTRY.values()]
+    current_display = get_character_config(st.session_state.character_id)["display_name"]
+    character_name = st.selectbox(
+        "Chọn nhân vật lịch sử",
+        display_names,
+        index=display_names.index(current_display),
+        label_visibility="collapsed",
+    )
+    character_id = DISPLAY_NAME_TO_ID[character_name]
+    if character_id != st.session_state.character_id:
+        st.session_state.character_id = character_id
+        st.session_state.messages = []
+        st.session_state.sprite_state = "idle"
+        st.session_state.last_answer = ""
+        st.session_state.pending_query = ""
+        st.rerun()
+    character_config = get_character_config(character_id)
 
     st.markdown("### Kịch bản gài bẫy")
-    for case in EDGE_CASES:
+    for case in character_config["edge_cases"]:
         st.button(case, key=f"edge_{case}", on_click=set_pending_query, args=(case,), width="stretch")
 
     if st.button("Nạp lại tư liệu", width="stretch"):
@@ -381,17 +405,30 @@ with st.sidebar:
 
     st.markdown("### Giọng nói")
     if is_tts_configured():
-        st.success("Google TTS đã cấu hình: vi-VN-Neural2-D")
+        st.success(f"Google TTS đã cấu hình: {character_config['voice_label']}")
     else:
         st.info("Chưa có GOOGLE_TTS_API_KEY; câu trả lời vẫn hiển thị text.")
     st.caption("Giọng đọc tự tạo ngay khi câu trả lời xuất hiện.")
 
+profile_path = profile_path_for(st.session_state.character_id)
+chunks_path = knowledge_path_for(st.session_state.character_id)
+profile, chunks, retriever = get_runtime(
+    st.session_state.character_id,
+    profile_path.stat().st_mtime,
+    chunks_path.stat().st_mtime,
+)
+
 left, right = st.columns([0.72, 0.28], gap="large")
 
 with right:
-    sprite = get_sprite_path(st.session_state.sprite_state)
-    if sprite.exists():
+    sprite = get_sprite_path(st.session_state.character_id, st.session_state.sprite_state)
+    if sprite:
         st.image(str(sprite), width="stretch")
+    else:
+        st.markdown(
+            f'<div class="neutral-portrait">{html.escape(profile["character_metadata"]["name"]).upper()}<br/>SIMULACRA</div>',
+            unsafe_allow_html=True,
+        )
     state_labels = {"idle": "đang chờ", "talking": "đang trả lời", "confused": "cần kiểm chứng"}
     st.markdown(
         f"""
@@ -406,7 +443,7 @@ with right:
     )
 
 with left:
-    st.markdown('<div class="qt-title">Đối thoại lịch sử với nhà vua</div>', unsafe_allow_html=True)
+    st.markdown('<div class="qt-title">Đối thoại lịch sử với nhân vật</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="qt-subtitle">Nhân vật trả lời nhập vai; phần đối chiếu học thuật nằm riêng bên dưới.</div>',
         unsafe_allow_html=True,
@@ -430,7 +467,7 @@ with left:
                 render_citations(message.get("citations", []))
                 render_verification_status(mode)
 
-    submitted_query = st.chat_input("Hỏi về Nghệ An, Rạch Gầm - Xoài Mút, Ngọc Hồi - Đống Đa...")
+    submitted_query = st.chat_input(f"Hỏi {profile['character_metadata']['name']} về thân thế, sự nghiệp, tư tưởng...")
     query = st.session_state.pending_query or submitted_query
     st.session_state.pending_query = ""
 
@@ -444,7 +481,7 @@ with left:
             )
         ) if is_configured() else None
         result = answer_query(query, profile, retriever, generator=generator)
-        tts_result = synthesize(result["answer"], "quang_trung")
+        tts_result = synthesize(result["answer"], st.session_state.character_id)
         st.session_state.sprite_state = result["state"]
         st.session_state.last_answer = result["answer"]
         st.session_state.messages.append(

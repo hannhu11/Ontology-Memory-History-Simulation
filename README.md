@@ -1,12 +1,16 @@
 # Ontology Memory History Simulation
 
-Repo backup code và dataset cho prototype RAG mô phỏng đối thoại lịch sử, hiện tập trung vào nhân vật Vua Quang Trung / Nguyễn Huệ.
+Repo backup code và dataset cho prototype RAG mô phỏng đối thoại lịch sử. Bản hiện tại đã mở rộng từ Quang Trung-only sang 5 nhân vật lịch sử, có multi-character RAG, Gemini-only generator và Google Cloud TTS SSML.
 
 ## Nội dung chính
 
-- `quang_trung_dataset/`: script build dataset, validator, profile nhân vật và `quang_trung_knowledge.jsonl` đã mở rộng lên 100 chunk.
-- `quang_trung_web/`: app Streamlit, RAG core dùng ChromaDB + sentence-transformers, Hybrid Simulacra RAG, Gemini-only provider, Google TTS SSML, smoke tests và asset UI.
+- `quang_trung_dataset/`: script build/validate dataset Quang Trung, script chuẩn hóa multi-character, `MEMORY.md`.
+- `quang_trung_web/`: app Streamlit, registry 5 nhân vật, RAG core, Gemini provider, Google TTS provider, smoke tests và assets.
 - `quang_trung_dataset/MEMORY.md`: nhật ký trạng thái bắt buộc đọc trước khi tiếp tục phát triển hoặc mở chat mới.
+- `ho_chi_minh_dataset/`: 150 chunks.
+- `tran_hung_dao_dataset/`: 125 chunks.
+- `nguyen_trai_dataset/`: 50 chunks.
+- `vo_nguyen_giap_dataset/`: 115 chunks.
 
 ## Chạy local
 
@@ -15,6 +19,7 @@ cd quang_trung_web
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
+notepad .env
 .\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501
 ```
 
@@ -30,24 +35,45 @@ GOOGLE_TTS_TIMEOUT_SECONDS=18
 
 ## Kiến trúc hiện tại
 
-- RAG đã có query rewriting cho đại từ mơ hồ như `vua`, `ngài`, `ông`, `ta`, ánh xạ về Quang Trung / Nguyễn Huệ / Tây Sơn trước khi truy xuất.
-- Intent `battle_reflection` xử lý câu hỏi tự nhiên kiểu “vua nói qua về một trận đánh hãnh diện nhất”, ưu tiên Ngọc Hồi - Đống Đa và Rạch Gầm - Xoài Mút.
-- Retriever chạy hybrid deterministic trên original query, rewritten query và canonical variants, rồi fuse/rerank theo intent, chất lượng nguồn và tag lịch sử.
-- Fallback nội bộ giữ vai quân vương cho câu trong thời đại, nhưng guardrail vẫn chặn nghiêm các câu sau năm 1792 hoặc claim sai mốc.
-- TTS dùng Google Cloud `vi-VN-Neural2-D` qua SSML `<prosody pitch="-7st" rate="0.90">` để mô phỏng giọng trầm, uy nghi hơn. Google Cloud hiện không có nhãn giọng miền Trung/Bình Định riêng cho `vi-VN`.
+- `character_registry.py` là nguồn cấu hình duy nhất cho UI, dataset path, asset path, edge-case buttons và voice label.
+- `rag_core.py` nạp profile/chunks theo `character_id`, tạo index riêng `.rag_index/<character_id>` và dùng guardrail theo `death_year`.
+- Quang Trung có query rewriting cho `vua`, `ngài`, `ông`, `ta`; câu “trận hãnh diện/đáng nhớ” được route về Ngọc Hồi - Đống Đa và Rạch Gầm - Xoài Mút.
+- Các nhân vật mới dùng cùng runtime, không lẫn citation giữa dataset.
+- Fallback nội bộ bảo toàn Simulacra: nhân vật không nói như bot đọc dataset; UI citation là phần học thuật riêng.
+- Câu sau năm mất bị xử lý theo vai. Riêng Hồ Chí Minh với các câu di sản sau 1969 như 1975 trả theo dạng “sau khi Bác đã đi xa, sử sách đời sau ghi...”.
+- TTS dùng Google Cloud `vi-VN-Neural2-D` qua SSML, không ghi MP3 ra ổ đĩa.
 
-## Build và kiểm thử
+## Voice Matrix
+
+Google Cloud hiện không có voice `vi-VN` theo miền Trung/Bình Định/Nghệ An. App mô phỏng khác biệt giọng bằng SSML:
+
+- `quang_trung`: `pitch="-6st"`, `rate="0.95"`.
+- `tran_hung_dao`: `pitch="-8st"`, `rate="0.85"`.
+- `nguyen_trai`: `pitch="-2st"`, `rate="0.95"`.
+- `ho_chi_minh`: `pitch="+1st"`, `rate="0.85"`.
+- `vo_nguyen_giap`: `pitch="-4st"`, `rate="0.90"`.
+
+## Build Dataset
 
 ```powershell
 python .\quang_trung_dataset\build_dataset.py
+python .\quang_trung_dataset\build_multi_character_datasets.py
+```
+
+`build_multi_character_datasets.py` đọc source `DATASET-Ontology-Memory-History-Simulation-main` khi có trong workspace local. Repo backup đã chứa output chuẩn hóa nên không cần source folder để chạy web.
+
+## Kiểm thử
+
+```powershell
 python .\quang_trung_dataset\validate_dataset.py
-.\quang_trung_web\.venv\Scripts\python.exe -m py_compile .\quang_trung_web\app.py .\quang_trung_web\rag_core.py .\quang_trung_web\llm_provider.py .\quang_trung_web\tts_provider.py .\quang_trung_web\smoke_test.py
+python .\quang_trung_dataset\validate_multi_character.py
+python -m py_compile .\quang_trung_web\app.py .\quang_trung_web\rag_core.py .\quang_trung_web\llm_provider.py .\quang_trung_web\tts_provider.py .\quang_trung_web\smoke_test.py .\quang_trung_web\character_registry.py
 cd quang_trung_web
 .\.venv\Scripts\python.exe .\smoke_test.py
 ```
 
-`.rag_index/quang_trung` là cache local, tự rebuild khi JSONL đổi và không được push.
+Smoke test kiểm tra đủ 5 nhân vật, positive/negative cases, Quang Trung battle reflection, Võ Nguyên Giáp Điện Biên Phủ, HCM legacy-afterlife và TTS SSML.
 
 ## Bảo mật
 
-Repo này không lưu API key, token, `.env`, virtualenv, ChromaDB index, cache model, log hoặc file nén backup. Chỉ `.env.example` được commit để mô tả tên biến môi trường.
+Repo này không lưu API key, token, `.env`, virtualenv, ChromaDB index, cache model, log hoặc file nén backup mới. Chỉ `.env.example` được commit để mô tả tên biến môi trường.

@@ -21,8 +21,16 @@ GOOGLE_TTS_VOICE_NAME = "vi-VN-Neural2-D"
 GOOGLE_TTS_LANGUAGE_CODE = "vi-VN"
 GOOGLE_TTS_GENDER = "MALE"
 GOOGLE_TTS_AUDIO_ENCODING = "MP3"
-GOOGLE_TTS_SSML_PITCH = "-7st"
-GOOGLE_TTS_SSML_RATE = "0.90"
+DEFAULT_VOICE_PROFILE = "quang_trung"
+VOICE_PROFILES = {
+    "quang_trung": {"pitch": "-6st", "rate": "0.95", "label": "Chiến tướng uy dũng"},
+    "tran_hung_dao": {"pitch": "-8st", "rate": "0.85", "label": "Quốc công Tiết chế"},
+    "nguyen_trai": {"pitch": "-2st", "rate": "0.95", "label": "Ức Trai văn thần"},
+    "ho_chi_minh": {"pitch": "+1st", "rate": "0.85", "label": "Ấm áp, gần gũi"},
+    "vo_nguyen_giap": {"pitch": "-4st", "rate": "0.90", "label": "Đại tướng điềm tĩnh"},
+}
+GOOGLE_TTS_SSML_PITCH = VOICE_PROFILES[DEFAULT_VOICE_PROFILE]["pitch"]
+GOOGLE_TTS_SSML_RATE = VOICE_PROFILES[DEFAULT_VOICE_PROFILE]["rate"]
 DEFAULT_TTS_TIMEOUT_SECONDS = 18.0
 
 
@@ -46,18 +54,23 @@ def request_timeout_seconds() -> float:
         return DEFAULT_TTS_TIMEOUT_SECONDS
 
 
-def build_ssml(text: str) -> str:
+def voice_profile_for(character_id: str) -> dict:
+    return VOICE_PROFILES.get(character_id, VOICE_PROFILES[DEFAULT_VOICE_PROFILE])
+
+
+def build_ssml(text: str, character_id: str = DEFAULT_VOICE_PROFILE) -> str:
+    voice_profile = voice_profile_for(character_id)
     escaped_text = html.escape(text.strip(), quote=False)
     return (
-        f'<speak><prosody pitch="{GOOGLE_TTS_SSML_PITCH}" rate="{GOOGLE_TTS_SSML_RATE}">'
+        f'<speak><prosody pitch="{voice_profile["pitch"]}" rate="{voice_profile["rate"]}">'
         f'<emphasis level="strong">{escaped_text}</emphasis>'
         "</prosody></speak>"
     )
 
 
-def build_tts_payload(text: str) -> dict:
+def build_tts_payload(text: str, character_id: str = DEFAULT_VOICE_PROFILE) -> dict:
     return {
-        "input": {"ssml": build_ssml(text)},
+        "input": {"ssml": build_ssml(text, character_id)},
         "voice": {
             "languageCode": GOOGLE_TTS_LANGUAGE_CODE,
             "name": GOOGLE_TTS_VOICE_NAME,
@@ -72,7 +85,6 @@ def synthesize(text: str, character_id: str) -> TTSResult:
     if not cleaned_text:
         return TTSResult(audio_base64=None, message="Chưa có nội dung để tạo giọng đọc.")
 
-    _ = character_id
     api_key = os.getenv("GOOGLE_TTS_API_KEY")
     if not api_key:
         return TTSResult(audio_base64=None, message="Chưa cấu hình GOOGLE_TTS_API_KEY trong .env.")
@@ -81,7 +93,7 @@ def synthesize(text: str, character_id: str) -> TTSResult:
         response = requests.post(
             GOOGLE_TTS_ENDPOINT,
             params={"key": api_key},
-            json=build_tts_payload(cleaned_text),
+            json=build_tts_payload(cleaned_text, character_id),
             timeout=request_timeout_seconds(),
         )
     except requests.RequestException:

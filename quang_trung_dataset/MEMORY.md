@@ -174,3 +174,58 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 - Câu trả lời `micro_tactics` mặc định đã đổi thành mô tả cụ thể chiến dịch chống quân Thanh: tiến thần tốc, chia nhiều đạo, uy hiếp Hà Hồi, đánh Ngọc Hồi bằng mộc rơm ướt, phối hợp tượng binh/hỏa hổ/súng/bộ binh, vu hồi Đống Đa và làm Tôn Sĩ Nghị rối loạn.
 - `smoke_test.py` đã thêm `BATTLE_DESCRIPTION_CASES`, trong đó có đúng câu user báo lỗi. Test yêu cầu intent phải là `micro_tactics`, không phải `battle_reflection`, answer phải nhắc `quân Thanh`, `Ngọc Hồi`, `Đống Đa`, và citation phải thuộc nhóm chiến trận.
 - Nếu trình duyệt còn hiện câu cũ sau hotfix, cần hard refresh hoặc bấm `Xóa hội thoại`; câu cũ đã được sinh trong session trước đó sẽ không tự biến mất.
+
+## Trạng thái mở rộng 5 nhân vật ngày 2026-06-06
+
+- Đã mở rộng runtime từ Quang Trung-only sang multi-character RAG cho 5 nhân vật: `quang_trung`, `ho_chi_minh`, `nguyen_trai`, `tran_hung_dao`, `vo_nguyen_giap`.
+- Đã thêm `quang_trung_web/character_registry.py`. Đây là registry trung tâm map display name, `character_id`, dataset dir, asset dir, voice label và edge-case buttons. `app.py` lấy danh sách nhân vật từ registry và reset hội thoại khi đổi nhân vật.
+- Đã chuẩn hóa thêm 4 dataset từ `DATASET-Ontology-Memory-History-Simulation-main`:
+  - `ho_chi_minh_dataset`: 150 chunks.
+  - `tran_hung_dao_dataset`: 125 chunks, gồm 120 JSONL + 5 profile knowledge không trùng ID.
+  - `nguyen_trai_dataset`: 50 chunks, chuyển file `.json` dạng JSONL thành JSONL hợp lệ.
+  - `vo_nguyen_giap_dataset`: 115 chunks, repair lỗi dòng `vng_kb_085` bị dính record `vng_kb_071`.
+- Script mới:
+  - `quang_trung_dataset/build_multi_character_datasets.py` để rebuild 4 dataset mới từ source folder.
+  - `quang_trung_dataset/validate_multi_character.py` để kiểm tra đủ profile, chunk schema, chunk ID không trùng, registry và voice profile.
+- `rag_core.py` đã generalize loader:
+  - `load_profile(character_id)`.
+  - `load_chunks(character_id)`.
+  - `VectorRetriever(chunks, character_id=...)`.
+  - Index/cache tách theo `.rag_index/<character_id>` để tránh lẫn dữ liệu.
+- Guardrail hiện dùng `death_year` theo profile. Câu sau khi nhân vật mất bị chặn đúng vai; riêng Hồ Chí Minh với câu di sản sau 1969 như Chiến dịch Hồ Chí Minh/30-4-1975 được trả theo dạng `sau khi Bác đã đi xa, sử sách đời sau ghi...`, không nói như nhân chứng trực tiếp.
+- Đã sửa lỗi intent `Điện Biên Phủ`: vẫn là guardrail với nhân vật mất trước 1954, nhưng với Võ Nguyên Giáp thì được route vào `military` để retrieve đúng các chunk `vng_kb_065`, `vng_kb_068`, `vng_kb_067`, `vng_kb_054` về quyết định chuyển từ `đánh nhanh` sang `đánh chắc tiến chắc`.
+- `llm_provider.py` dùng `system_prompt_blueprint`, `tone_of_voice` và metadata từ profile, nhưng override các câu prompt máy móc để bảo toàn Simulacra: không được lộ thuật ngữ kỹ thuật, không nói như AI đọc dataset, được trả lời tầng đại cục khi context thiếu nhưng không bịa chi tiết vi mô.
+- `tts_provider.py` đã có voice matrix SSML cho từng nhân vật, dùng chung Google Cloud `vi-VN-Neural2-D`:
+  - Quang Trung: `pitch="-6st"`, `rate="0.95"`.
+  - Trần Hưng Đạo: `pitch="-8st"`, `rate="0.85"`.
+  - Nguyễn Trãi: `pitch="-2st"`, `rate="0.95"`.
+  - Hồ Chí Minh: `pitch="+1st"`, `rate="0.85"`.
+  - Võ Nguyên Giáp: `pitch="-4st"`, `rate="0.90"`.
+- Google Cloud hiện không có voice `vi-VN` theo vùng miền miền Trung/Bình Định/Nghệ An; khác biệt giọng đang được mô phỏng bằng SSML pitch/rate, không thêm provider mới.
+- `smoke_test.py` đã mở rộng regression:
+  - Battle reflection và battle description cho Quang Trung.
+  - 2 positive + 2 negative/multi checks cho các nhân vật mới.
+  - HCM legacy-afterlife case.
+  - TTS payload SSML theo từng nhân vật và XML escaping.
+
+## Kiểm thử đã chạy cho multi-character ngày 2026-06-06
+
+- `python -m py_compile quang_trung_web\app.py quang_trung_web\rag_core.py quang_trung_web\llm_provider.py quang_trung_web\tts_provider.py quang_trung_web\smoke_test.py quang_trung_web\character_registry.py quang_trung_dataset\build_multi_character_datasets.py quang_trung_dataset\validate_multi_character.py`
+- `python quang_trung_dataset\validate_dataset.py` -> Quang Trung 100 chunks, pass.
+- `python quang_trung_dataset\validate_multi_character.py` -> 5 nhân vật pass: 100/150/125/50/115 chunks.
+- `cd quang_trung_web; .\.venv\Scripts\python.exe .\smoke_test.py` -> pass. Smoke output xác nhận câu `vua nói qua về 1 trận đánh...` trả Ngọc Hồi - Đống Đa/Rạch Gầm, câu `vua hãy mô tả về trận đánh với quân thanh đi` trả micro tactics, và Võ Nguyên Giáp retrieve đúng Điện Biên Phủ.
+
+## Cách chạy sau khi clone mới
+
+- Từ root repo:
+  - `python .\quang_trung_dataset\build_dataset.py`
+  - `python .\quang_trung_dataset\build_multi_character_datasets.py` nếu cần rebuild 4 dataset mới từ source folder.
+  - `python .\quang_trung_dataset\validate_dataset.py`
+  - `python .\quang_trung_dataset\validate_multi_character.py`
+  - `cd quang_trung_web`
+  - `python -m venv .venv`
+  - `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`
+  - copy `.env.example` thành `.env`, điền `GEMINI_API_KEY` và `GOOGLE_TTS_API_KEY` local nếu có; không commit `.env`.
+  - `.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501`
+- Nếu UI còn hiện câu trả lời cũ sau khi patch, bấm `Xóa hội thoại`, hard refresh trình duyệt, hoặc restart process Streamlit. Session cũ không tự cập nhật câu đã sinh.
+- Không push `.env`, API key, token, `.venv`, `.rag_index`, `__pycache__`, log, cache model hoặc file tạm. Mọi plan/nhiệm vụ xong phải cập nhật `MEMORY.md` trước commit/push.
