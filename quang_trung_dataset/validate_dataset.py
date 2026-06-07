@@ -26,6 +26,8 @@ REQUIRED_CHUNK_FIELDS = {
     "chunk_id",
     "claim_status",
     "source_quality",
+    "source_quality_score",
+    "source_tier",
     "source_title",
     "source_year",
     "source_type",
@@ -176,6 +178,10 @@ def validate_knowledge() -> list[dict]:
             fail(f"Chunk {record['chunk_id']} has invalid claim_status: {record['claim_status']}")
         if not isinstance(record["answer_intents"], list) or not record["answer_intents"]:
             fail(f"Chunk {record['chunk_id']} must have non-empty answer_intents")
+        if int(record["source_tier"]) not in {1, 2, 3, 4}:
+            fail(f"Chunk {record['chunk_id']} has invalid source_tier")
+        if not isinstance(record["source_quality_score"], (int, float)) or not 0 <= float(record["source_quality_score"]) <= 1:
+            fail(f"Chunk {record['chunk_id']} has invalid source_quality_score")
         if not isinstance(record["canonical_questions"], list) or len(record["canonical_questions"]) < 2:
             fail(f"Chunk {record['chunk_id']} must have at least two canonical_questions")
         all_intents.update(record["answer_intents"])

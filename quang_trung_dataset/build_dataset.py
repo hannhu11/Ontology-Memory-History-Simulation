@@ -1285,6 +1285,66 @@ SOURCE_QUALITY_BY_TYPE = {
 }
 
 
+def infer_source_tier(source: dict, source_quality: str) -> int:
+    blob = " ".join(
+        str(value or "").lower()
+        for value in (
+            source.get("source_title", ""),
+            source.get("source_type", ""),
+            source.get("source_url", ""),
+            source_quality,
+        )
+    )
+    tier1_terms = (
+        "đại việt sử ký toàn thư",
+        "khâm định việt sử thông giám cương mục",
+        "bảo tàng lịch sử quốc gia",
+        "baotanglichsuquocgia",
+        "viện sử học",
+        "vass",
+        "đảng cộng sản",
+        "dangcongsan",
+        "quân đội nhân dân",
+        "qdnd",
+        "tạp chí quốc phòng toàn dân",
+        "official_book",
+        "official_secondary",
+        "museum_document",
+        "museum_document_catalog",
+        "museum_official",
+    )
+    tier2_terms = (
+        "nghiên cứu",
+        "research",
+        "tạp chí",
+        "journal",
+        "digitized_secondary",
+        "research_secondary",
+        "specialized_secondary",
+        "national_defense_journal",
+    )
+    tier4_terms = ("wikipedia", "wiki", "wikisource")
+    if any(term in blob for term in tier1_terms):
+        return 1
+    if any(term in blob for term in tier2_terms):
+        return 2
+    if any(term in blob for term in tier4_terms):
+        return 4
+    return 3
+
+
+def add_source_trust(record: dict) -> dict:
+    source = {
+        "source_title": record.get("source_title", ""),
+        "source_type": record.get("source_type", ""),
+        "source_url": record.get("source_url", ""),
+    }
+    source_tier = infer_source_tier(source, record.get("source_quality", ""))
+    record["source_tier"] = source_tier
+    record["source_quality_score"] = {1: 1.0, 2: 0.78, 3: 0.55, 4: 0.25}[source_tier]
+    return record
+
+
 DETAIL_BY_INTENT = {
     "identity": (
         "Khi trả lời, cần đặt nhân vật trong khung thời gian 1753-1792 và triều Tây Sơn cuối thế kỷ XVIII. "
@@ -1420,7 +1480,7 @@ def build_knowledge_records() -> list[dict]:
                 "tag_blob": " ".join(tags + intents),
             }
         )
-    return records
+    return [add_source_trust(record) for record in records]
 
 
 def main() -> None:

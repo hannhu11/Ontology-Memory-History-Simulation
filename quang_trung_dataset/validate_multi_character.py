@@ -31,6 +31,8 @@ REQUIRED_CHUNK_FIELDS = {
     "chunk_id",
     "claim_status",
     "source_quality",
+    "source_quality_score",
+    "source_tier",
     "source_title",
     "source_year",
     "source_type",
@@ -113,6 +115,10 @@ def validate_chunks(character_id: str) -> list[dict]:
         for field in ("text", "fact", "topic_title", "source_title", "source_quality"):
             if not str(record.get(field, "")).strip():
                 fail(f"{record['chunk_id']} has empty {field}")
+        if int(record["source_tier"]) not in {1, 2, 3, 4}:
+            fail(f"{record['chunk_id']} has invalid source_tier")
+        if not isinstance(record["source_quality_score"], (int, float)) or not 0 <= float(record["source_quality_score"]) <= 1:
+            fail(f"{record['chunk_id']} has invalid source_quality_score")
         if not isinstance(record["tags"], list) or not record["tags"]:
             fail(f"{record['chunk_id']} needs tags")
         if not isinstance(record["answer_intents"], list) or not record["answer_intents"]:

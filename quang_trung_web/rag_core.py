@@ -278,6 +278,49 @@ INTENT_QUERY_TERMS = {
         "tap doan cu diem",
         "thuc dan phap",
     },
+    "military_doctrine": {
+        "tu tuong danh giac",
+        "tu tuong quan su",
+        "duong loi quan su",
+        "chien tranh nhan dan",
+        "nghe thuat quan su",
+        "danh giac",
+        "lay it dich nhieu",
+        "toan dan",
+        "du kich",
+        "danh chac tien chac",
+        "danh nhanh thang nhanh",
+        "chien luoc quan su",
+        "phuong cham",
+    },
+    "ideology": {
+        "tu tuong",
+        "nhan nghia",
+        "doc lap tu do",
+        "khong co gi quy hon doc lap tu do",
+        "khoan thu suc dan",
+        "muu phat tam cong",
+        "yen dan",
+        "long dan",
+        "than dan",
+        "dan la goc",
+        "su nghiep",
+        "ly tuong",
+        "duong loi",
+    },
+    "life_milestone": {
+        "ra di tim duong cuu nuoc",
+        "tim duong cuu nuoc",
+        "ben nha rong",
+        "nha rong",
+        "ngay 5 6 1911",
+        "5/6/1911",
+        "nam nao",
+        "que quan",
+        "sinh nam",
+        "than the",
+        "tieu su",
+    },
     "anachronism": {
         "the chien",
         "chien tranh the gioi",
@@ -359,6 +402,9 @@ def query_intents(query: str) -> set[str]:
         "agriculture",
         "scholars",
         "diplomacy",
+        "life_milestone",
+        "ideology",
+        "military_doctrine",
         "battle_reflection",
         "micro_tactics",
         "military",
@@ -370,19 +416,171 @@ def query_intents(query: str) -> set[str]:
 
 def chunk_intents(chunk: dict) -> set[str]:
     intents = set(chunk.get("answer_intents") or []) | set(chunk.get("tags") or [])
+    blob = normalize(
+        " ".join(
+            [
+                chunk.get("topic_title", ""),
+                chunk.get("fact", ""),
+                chunk.get("text", ""),
+                " ".join(chunk.get("tags", [])),
+                " ".join(chunk.get("answer_intents", [])),
+            ]
+        )
+    )
     if intents & {"micro_tactics", "military", "battle", "ngoc_hoi_dong_da", "rach_gam_xoai_mut"}:
         intents.add("battle_reflection")
+    if any(
+        term in blob
+        for term in (
+            "ra di tim duong cuu nuoc",
+            "tim duong cuu nuoc",
+            "ben nha rong",
+            "5/6/1911",
+            "1911",
+            "que quan",
+            "than the",
+            "tieu su",
+        )
+    ):
+        intents.add("life_milestone")
+    if any(
+        term in blob
+        for term in (
+            "tu tuong quan su",
+            "chien tranh nhan dan",
+            "nghe thuat quan su",
+            "danh chac tien chac",
+            "danh nhanh thang nhanh",
+            "du kich",
+            "phuong cham",
+        )
+    ):
+        intents.add("military_doctrine")
+    if any(
+        term in blob
+        for term in (
+            "tu tuong",
+            "nhan nghia",
+            "doc lap tu do",
+            "yen dan",
+            "long dan",
+            "khoan thu suc dan",
+            "muu phat tam cong",
+            "dan la goc",
+        )
+    ):
+        intents.add("ideology")
     return intents
 
 
+def infer_source_tier(chunk: dict) -> int:
+    title = normalize(chunk.get("source_title", ""))
+    source_type = normalize(chunk.get("source_type", ""))
+    quality = normalize(chunk.get("source_quality", ""))
+    url = normalize(chunk.get("source_url", ""))
+    tier1_terms = (
+        "dai viet su ky toan thu",
+        "kham dinh viet su thong giam cuong muc",
+        "bao tang lich su quoc gia",
+        "baotanglichsuquocgia",
+        "chinh phu",
+        "dangcongsan",
+        "bo quoc phong",
+        "mod gov",
+        "qdnd",
+        "tap chi quoc phong toan dan",
+        "ho chi minh toan tap",
+        "van kien dang",
+        "historical_document",
+        "digitized_primary",
+        "official_book",
+        "official_book_excerpt",
+        "museum_document",
+        "museum_official",
+    )
+    tier2_terms = (
+        "vien su hoc",
+        "vass",
+        "nghien cuu",
+        "research",
+        "university",
+        "journal",
+        "tap chi",
+        "nxb",
+        "digitized_secondary",
+        "research_secondary",
+        "national_defense_journal",
+    )
+    tier4_terms = ("wikipedia", "wiki", "wikisource")
+    blob = " ".join([title, source_type, quality, url])
+    if any(term in blob for term in tier1_terms):
+        return 1
+    if any(term in blob for term in tier2_terms):
+        return 2
+    if any(term in blob for term in tier4_terms):
+        return 4
+    return 3
+
+
+def chunk_source_tier(chunk: dict) -> int:
+    raw_tier = chunk.get("source_tier")
+    if isinstance(raw_tier, int):
+        return max(1, min(4, raw_tier))
+    if isinstance(raw_tier, str):
+        match = re.search(r"[1-4]", raw_tier)
+        if match:
+            return int(match.group(0))
+    return infer_source_tier(chunk)
+
+
+def source_quality_score(chunk: dict) -> float:
+    if isinstance(chunk.get("source_quality_score"), (int, float)):
+        return float(chunk["source_quality_score"])
+    return {1: 1.0, 2: 0.78, 3: 0.55, 4: 0.25}.get(infer_source_tier(chunk), 0.45)
+
+
 def source_quality_boost(chunk: dict) -> float:
+    tier = chunk_source_tier(chunk)
+    tier_boost = {1: 0.105, 2: 0.065, 3: 0.02, 4: -0.08}.get(tier, 0.0)
     quality = chunk.get("source_quality", "")
-    return {
+    return tier_boost + {
         "research_secondary": 0.035,
         "digitized_secondary": 0.025,
+        "digitized_primary": 0.075,
         "museum_official": 0.02,
         "curated_exhibit": 0.015,
+        "official_book_excerpt": 0.07,
+        "press_secondary": 0.025,
     }.get(quality, 0.0)
+
+
+def diversify_hits(ranked: list[Hit], top_k: int) -> list[Hit]:
+    if not ranked:
+        return []
+    has_trusted = any(chunk_source_tier(hit.chunk) <= 2 for hit in ranked)
+    candidates = [hit for hit in ranked if not (has_trusted and chunk_source_tier(hit.chunk) == 4)]
+    selected: list[Hit] = []
+    source_counts: Counter[str] = Counter()
+    topic_seen: set[str] = set()
+    for hit in candidates:
+        source_key = normalize(hit.chunk.get("source_title", "") or hit.chunk.get("source_url", ""))
+        topic_key = normalize(hit.chunk.get("topic_title", "") or hit.chunk.get("fact", ""))[:120]
+        if source_counts[source_key] >= 2:
+            continue
+        if topic_key and topic_key in topic_seen and len(selected) >= max(1, top_k // 2):
+            continue
+        selected.append(hit)
+        source_counts[source_key] += 1
+        if topic_key:
+            topic_seen.add(topic_key)
+        if len(selected) >= top_k:
+            return selected
+    for hit in candidates:
+        if hit not in selected:
+            selected.append(hit)
+        if len(selected) >= top_k:
+            break
+    return selected
 
 
 def is_battle_reflection_query(query: str) -> bool:
@@ -407,6 +605,7 @@ def profile_character_id(profile: dict | None) -> str:
 
 def rewrite_query(query: str, profile: dict | None = None) -> str:
     normalized = normalize(query)
+    intents = query_intents(query)
     additions: list[str] = []
     if profile and profile.get("character_metadata", {}).get("name"):
         metadata = profile["character_metadata"]
@@ -423,6 +622,31 @@ def rewrite_query(query: str, profile: dict | None = None) -> str:
 
     if any(has_phrase(normalized, term) for term in ("vua", "nha vua", "ngai", "ong", "ta")):
         additions.append(name_blob)
+    if intents & {"ideology", "military_doctrine"}:
+        character_id = profile_character_id(profile)
+        additions.append(name_blob)
+        if character_id == "vo_nguyen_giap":
+            additions.append(
+                "Võ Nguyên Giáp tư tưởng quân sự chiến tranh nhân dân toàn dân toàn diện "
+                "đánh chắc tiến chắc nghệ thuật quân sự Điện Biên Phủ"
+            )
+        elif character_id == "ho_chi_minh":
+            additions.append(
+                "Hồ Chí Minh tư tưởng độc lập tự do dân là gốc đạo đức cách mạng đại đoàn kết "
+                "không có gì quý hơn độc lập tự do"
+            )
+        elif character_id == "nguyen_trai":
+            additions.append(
+                "Nguyễn Trãi Bình Ngô đại cáo nhân nghĩa yên dân mưu phạt tâm công lòng dân "
+                "Quân trung từ mệnh tập"
+            )
+        elif character_id == "tran_hung_dao":
+            additions.append(
+                "Trần Hưng Đạo Hịch tướng sĩ khoan thư sức dân Bạch Đằng binh pháp giữ nước "
+                "lòng dân tướng sĩ"
+            )
+        else:
+            additions.append("tư tưởng trị nước dùng người yên dân quân sự cải cách")
     if profile_character_id(profile) == "quang_trung" and is_battle_reflection_query(query):
         additions.append(
             "trận đánh hãnh diện tự hào chiến thắng lớn Ngọc Hồi Đống Đa Kỷ Dậu 1789 "
@@ -442,6 +666,8 @@ def rewrite_query(query: str, profile: dict | None = None) -> str:
 
 def query_variants(query: str, profile: dict | None = None) -> list[str]:
     variants = [query, rewrite_query(query, profile)]
+    intents = query_intents(query)
+    character_id = profile_character_id(profile)
     if profile_character_id(profile) == "quang_trung" and is_battle_reflection_query(query):
         variants.extend(
             [
@@ -458,6 +684,53 @@ def query_variants(query: str, profile: dict | None = None) -> list[str]:
                 "Tây Sơn tượng binh hỏa hổ đại bác mộc rơm ướt đánh quân Thanh ở Ngọc Hồi",
             ]
         )
+    elif intents & {"ideology", "military_doctrine"}:
+        if character_id == "vo_nguyen_giap":
+            variants.extend(
+                [
+                    "Võ Nguyên Giáp tư tưởng đánh giặc chiến tranh nhân dân toàn dân toàn diện",
+                    "Võ Nguyên Giáp nghệ thuật quân sự đánh chắc tiến chắc Điện Biên Phủ",
+                    "Võ Nguyên Giáp đường lối quân sự lấy chính trị tinh thần và nhân dân làm nền",
+                ]
+            )
+        elif character_id == "ho_chi_minh":
+            variants.extend(
+                [
+                    "Hồ Chí Minh tư tưởng độc lập tự do hạnh phúc dân là gốc",
+                    "Hồ Chí Minh không có gì quý hơn độc lập tự do đại đoàn kết đạo đức cách mạng",
+                    "Hồ Chí Minh tư tưởng cách mạng giải phóng dân tộc",
+                ]
+            )
+        elif character_id == "nguyen_trai":
+            variants.extend(
+                [
+                    "Nguyễn Trãi tư tưởng nhân nghĩa yên dân Bình Ngô đại cáo",
+                    "Nguyễn Trãi mưu phạt tâm công Quân trung từ mệnh tập lòng dân",
+                    "Nguyễn Trãi văn hiến Đại Việt chống ngoại xâm nhân nghĩa",
+                ]
+            )
+        elif character_id == "tran_hung_dao":
+            variants.extend(
+                [
+                    "Trần Hưng Đạo khoan thư sức dân kế sâu rễ bền gốc giữ nước",
+                    "Trần Hưng Đạo Hịch tướng sĩ lòng trung nghĩa tướng sĩ quân Nguyên Mông",
+                    "Trần Hưng Đạo Bạch Đằng 1288 binh pháp đoàn kết toàn dân",
+                ]
+            )
+    elif "life_milestone" in intents:
+        if character_id == "ho_chi_minh":
+            variants.extend(
+                [
+                    "Hồ Chí Minh Nguyễn Tất Thành ra đi tìm đường cứu nước ngày 5/6/1911 bến Nhà Rồng tàu Amiral Latouche-Tréville",
+                    "Hồ Chí Minh Bến Nhà Rồng năm 1911 hành trình tìm đường cứu nước",
+                ]
+            )
+        elif character_id == "vo_nguyen_giap":
+            variants.append("Võ Nguyên Giáp sinh tại Lộc Thủy Lệ Thủy Quảng Bình tiểu sử thân thế")
+        elif character_id == "nguyen_trai":
+            variants.append("Nguyễn Trãi Ức Trai thân thế tiểu sử Lam Sơn Bình Ngô đại cáo")
+        elif character_id == "tran_hung_dao":
+            variants.append("Trần Hưng Đạo Hưng Đạo Đại Vương thân thế tiểu sử nhà Trần")
     deduped = []
     seen = set()
     for variant in variants:
@@ -476,6 +749,7 @@ def intent_matches(query_intent_set: set[str], doc_intent_set: set[str]) -> bool
 
 def rerank_hits(query: str, hits: list[Hit], top_k: int, min_score: float | None = None) -> list[Hit]:
     intents = query_intents(query)
+    query_years = re.findall(r"\b(1[0-9]\d{2}|20\d{2})\b", normalize(query))
     threshold = min_score if min_score is not None else configured_score_threshold()
     fused: dict[str, Hit] = {}
     for hit in hits:
@@ -483,6 +757,21 @@ def rerank_hits(query: str, hits: list[Hit], top_k: int, min_score: float | None
         if not intent_matches(intents, doc_intents):
             continue
         adjusted = hit.score + source_quality_boost(hit.chunk)
+        chunk_blob = normalize(
+            " ".join(
+                [
+                    hit.chunk.get("topic_title", ""),
+                    hit.chunk.get("fact", ""),
+                    hit.chunk.get("text", ""),
+                    hit.chunk.get("source_title", ""),
+                ]
+            )
+        )
+        if query_years:
+            if any(year in chunk_blob for year in query_years):
+                adjusted += 0.2
+            else:
+                adjusted -= 0.07
         if intents and (intents & doc_intents):
             adjusted += 0.08 + min(0.12, 0.04 * len(intents & doc_intents))
         if "battle_reflection" in intents:
@@ -497,7 +786,7 @@ def rerank_hits(query: str, hits: list[Hit], top_k: int, min_score: float | None
     ranked = sorted(fused.values(), key=lambda item: item.score, reverse=True)
     if ranked and ranked[0].score < threshold:
         return []
-    return ranked[:top_k]
+    return diversify_hits(ranked, top_k)
 
 
 def lexical_anchor_boost(query_norm: str, chunk: dict) -> float:
@@ -522,6 +811,14 @@ def lexical_anchor_boost(query_norm: str, chunk: dict) -> float:
         term in tag_blob for term in ("rach_gam_xoai_mut", "rach gam", "xoai mut")
     ):
         boost += 0.22
+    if "dien bien phu" in query_norm and (
+        "dien_bien" in tag_blob or "dien bien phu" in tag_blob or "dienbienphu" in tag_blob
+    ):
+        boost += 0.28
+    if "chien tranh nhan dan" in query_norm and (
+        "chien_tranh_nhan_dan" in tag_blob or "chien tranh nhan dan" in tag_blob
+    ):
+        boost += 0.24
     if ("can long" in query_norm or "cau phong" in query_norm or "ta toi" in query_norm) and any(
         term in tag_blob for term in ("can_long", "cau phong", "ta toi", "diplomacy", "qing")
     ):
@@ -611,7 +908,10 @@ def load_chunks(character_id: Path | str = DEFAULT_CHARACTER_ID) -> list[dict]:
         for line in handle:
             line = line.strip()
             if line:
-                chunks.append(json.loads(line))
+                chunk = json.loads(line)
+                chunk.setdefault("source_tier", chunk_source_tier(chunk))
+                chunk.setdefault("source_quality_score", source_quality_score(chunk))
+                chunks.append(chunk)
     return chunks
 
 
@@ -814,6 +1114,8 @@ class VectorRetriever:
                         "answer_intents": " ".join(chunk.get("answer_intents", [])),
                         "tags": " ".join(chunk.get("tags", [])),
                         "source_quality": chunk.get("source_quality", ""),
+                        "source_tier": chunk_source_tier(chunk),
+                        "source_quality_score": source_quality_score(chunk),
                     }
                     for index, chunk in enumerate(self.chunks)
                 ]
@@ -973,6 +1275,8 @@ def is_generated_answer_acceptable(query: str, answer: str) -> bool:
             "khong co can cu",
             "khong tim thay",
             "trong ngu canh",
+            "cau hoi ay con rong",
+            "hay hoi ro hon",
         )
     ):
         return False
@@ -1013,6 +1317,122 @@ def listener_for(profile: dict) -> str:
     if character_id == "nguyen_trai":
         return "người"
     return "ngươi"
+
+
+def self_names_for(profile: dict) -> list[str]:
+    metadata = profile.get("character_metadata", {})
+    names = [metadata.get("name", ""), metadata.get("full_name", "")]
+    names.extend(metadata.get("aliases", []))
+    return [name for name in dict.fromkeys(names) if name]
+
+
+def persona_fact(fact: str, profile: dict) -> str:
+    text = fact.strip()
+    pronoun = first_person_for(profile)
+    for name in self_names_for(profile):
+        escaped = re.escape(name)
+        text = re.sub(rf"\bđồng chí\s+{escaped}\b", pronoun, text, flags=re.IGNORECASE)
+        text = re.sub(rf"\bChủ tịch\s+{escaped}\b", pronoun, text, flags=re.IGNORECASE)
+        text = re.sub(rf"\bĐại tướng\s+{escaped}\b", pronoun, text, flags=re.IGNORECASE)
+        text = re.sub(rf"\b{escaped}\b", pronoun, text, flags=re.IGNORECASE)
+    text = re.sub(rf"\b{re.escape(pronoun)}\s+{re.escape(pronoun)}\b", pronoun, text, flags=re.IGNORECASE)
+    if pronoun == "tôi" and text.startswith("tôi "):
+        text = "Tôi " + text[4:]
+    if pronoun == "ta" and text.startswith("ta "):
+        text = "Ta " + text[3:]
+    if profile_character_id(profile) == "ho_chi_minh":
+        text = re.sub(
+            r"Ngày 5/6/1911,\s*người thanh niên\s+Bác\s*\(lấy tên\s+Bác\)\s*rời",
+            "Ngày 5/6/1911, khi còn là người thanh niên, Bác rời",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"Bác\s*\(tên khai sinh\s+Bác,\s*sinh\s+19/5/1890[^)]*\)\s*là\s*",
+            "Bác sinh ngày 19/5/1890 tại Nam Đàn, Nghệ An, và là ",
+            text,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def persona_facts(hits: list[Hit], profile: dict, limit: int = 3) -> list[str]:
+    facts = []
+    seen = set()
+    for hit in hits:
+        fact = hit.chunk.get("fact", "").strip()
+        if fact:
+            rewritten = persona_fact(fact, profile)
+            key = normalize(rewritten)
+            if key and key not in seen:
+                facts.append(rewritten)
+                seen.add(key)
+    return facts[:limit]
+
+
+def build_ideology_answer(query: str, profile: dict, hits: list[Hit]) -> str:
+    character_id = profile_character_id(profile)
+    facts = persona_facts(hits, profile, limit=3)
+    if character_id == "vo_nguyen_giap":
+        answer = (
+            "Tôi nhìn việc đánh giặc trước hết là việc của nhân dân. Quân đội không thể tách khỏi dân, "
+            "chiến trường không chỉ nằm trên bản đồ mà còn nằm trong ý chí chính trị, hậu phương, cách tổ chức lực lượng "
+            "và khả năng chọn đúng thời cơ. Khi cần đánh nhanh mà không chắc thắng thì phải biết dừng lại; khi đã thấy "
+            "địch mạnh về hỏa lực, ta càng phải lấy thế trận, tinh thần, hậu cần và cách đánh chắc để thắng."
+        )
+    elif character_id == "ho_chi_minh":
+        answer = (
+            "Bác nghĩ điều cốt lõi là độc lập cho dân tộc, tự do và hạnh phúc cho nhân dân. Nước độc lập mà dân không được học, "
+            "không được no, không được làm chủ thì độc lập ấy chưa trọn vẹn. Vì vậy cách mạng phải dựa vào dân, đoàn kết dân, "
+            "giữ đạo đức trong sáng và đặt lợi ích của Tổ quốc, của đồng bào lên trên hết."
+        )
+    elif character_id == "nguyen_trai":
+        answer = (
+            "Ta nói nhân nghĩa trước hết là yên dân. Việc lớn không chỉ ở thắng một trận, mà ở làm cho dân thoát nạn binh đao, "
+            "để nước có văn hiến, bờ cõi, phong tục và lòng người riêng. Dùng quân mà không biết lòng dân thì khó bền; "
+            "dùng lý lẽ để khuất phục lòng người cũng là một phép đánh giặc."
+        )
+    elif character_id == "tran_hung_dao":
+        answer = (
+            "Ta giữ nước bằng thế quân, nhưng gốc sâu hơn là lòng dân và kỷ luật tướng sĩ. Muốn chống giặc mạnh, trên dưới phải đồng lòng, "
+            "tướng không được quên nhục nước, quân không được quên nghĩa lớn, triều đình phải biết khoan thư sức dân để làm kế sâu rễ bền gốc."
+        )
+    else:
+        answer = (
+            "Ta trị nước và đánh giặc bằng điều thực dụng: giữ lòng dân, chọn thời cơ, dùng người có tài, "
+            "và không để quân thù kịp gom lại thế trận. Việc lớn phải nhìn cả dân sinh lẫn binh cơ."
+        )
+    if facts:
+        if character_id == "ho_chi_minh":
+            facts = []
+        answer += " " + " ".join(facts[:2])
+    return answer
+
+
+def build_broad_persona_answer(query: str, profile: dict, hits: list[Hit]) -> str:
+    character_id = profile_character_id(profile)
+    facts = persona_facts(hits, profile, limit=3)
+    if facts:
+        if character_id == "ho_chi_minh" and "life_milestone" in query_intents(query):
+            facts = [fact for fact in facts if "1911" in fact or "Bến Nhà Rồng" in fact][:1] or facts[:1]
+        if character_id == "ho_chi_minh":
+            return "Bác nói ngắn gọn thế này: " + " ".join(facts)
+        if character_id == "vo_nguyen_giap":
+            return "Tôi trả lời từ kinh nghiệm chiến trường và tổ chức lực lượng: " + " ".join(facts)
+        if character_id == "nguyen_trai":
+            return "Ta xét việc ấy theo đạo nhân nghĩa và thời thế: " + " ".join(facts)
+        if character_id == "tran_hung_dao":
+            return "Ta xét việc ấy theo phép giữ nước và lòng quân dân: " + " ".join(facts)
+        return "Ta nói theo việc nước và binh cơ: " + " ".join(facts)
+    if character_id == "ho_chi_minh":
+        return "Bác luôn đặt dân tộc và nhân dân lên trước. Việc gì có lợi cho dân, cho nước thì phải hết sức làm; việc gì hại đến dân thì phải hết sức tránh."
+    if character_id == "vo_nguyen_giap":
+        return "Tôi luôn nhìn chiến tranh bằng con mắt toàn cục: chính trị, nhân dân, hậu cần, thế trận và thời cơ phải đi cùng nhau thì quân đội mới thắng được kẻ mạnh hơn."
+    if character_id == "nguyen_trai":
+        return "Ta lấy nhân nghĩa làm gốc: yên dân, trừ bạo, giữ văn hiến và dùng cả lý lẽ lẫn thế thời để khuất phục kẻ xâm lăng."
+    if character_id == "tran_hung_dao":
+        return "Ta giữ nước bằng lòng dân, kỷ luật tướng sĩ và sự chuẩn bị lâu bền; quân mạnh mà dân mỏi thì gốc đã lung lay."
+    return "Ta xét việc ấy ở đại cuộc: dân, nước, thời cơ và phép dùng người phải hợp lại thì việc lớn mới thành."
 
 
 def build_afterlife_answer(query: str, profile: dict) -> str:
@@ -1074,16 +1494,13 @@ def build_generic_character_answer(query: str, profile: dict, hits: list[Hit]) -
             answer += " Sử sách đời sau ghi: " + " ".join(facts[:2])
         return answer, "talking"
     if hits:
-        facts = [hit.chunk.get("fact", "").strip() for hit in hits if hit.chunk.get("fact")]
+        if query_intents(query) & {"ideology", "military_doctrine"}:
+            return build_ideology_answer(query, profile, hits), "talking"
+        facts = persona_facts(hits, profile, limit=3)
         if facts:
-            lead = f"{pronoun.capitalize()} nói việc ấy phải nhìn vào đại cục của thời {metadata.get('era', 'đời ta')}."
-            return f"{lead} " + " ".join(facts[:3]), "talking"
+            return build_broad_persona_answer(query, profile, hits), "talking"
     traits = ", ".join(metadata.get("personality_traits", [])[:3]) or "trách nhiệm với dân nước"
-    return (
-        f"Câu hỏi ấy còn rộng. Nếu xét theo đời {pronoun}, điều cốt yếu nằm ở {traits}. "
-        "Hãy hỏi rõ hơn vào một việc, một chiến dịch, một văn kiện hoặc một lựa chọn lớn, "
-        f"{pronoun} sẽ nói bằng ký ức lịch sử của mình."
-    ), "talking"
+    return build_broad_persona_answer(query, profile, hits), "talking"
 
 
 def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:

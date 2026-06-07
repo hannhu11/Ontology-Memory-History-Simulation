@@ -143,6 +143,24 @@ MULTI_CHARACTER_CASES = {
     },
 }
 
+PERSONA_NATURAL_CASES = {
+    "vo_nguyen_giap": {
+        "question": "tư tưởng đánh giặc của bác giáp là gì vậy",
+        "forbidden": ("Võ Nguyên Giáp", "Đại tướng Võ Nguyên Giáp", "Câu hỏi ấy còn rộng"),
+        "must_contain": ("Tôi", "nhân dân"),
+    },
+    "ho_chi_minh": {
+        "question": "tư tưởng của bác là gì?",
+        "forbidden": ("Hồ Chí Minh", "Câu hỏi ấy còn rộng"),
+        "must_contain": ("Bác", "độc lập"),
+    },
+    "nguyen_trai": {
+        "question": "nhân nghĩa trong Bình Ngô đại cáo là gì?",
+        "forbidden": ("Nguyễn Trãi", "Câu hỏi ấy còn rộng"),
+        "must_contain": ("Ta", "yên dân"),
+    },
+}
+
 
 def validate_tts_provider_contract() -> None:
     payload = build_tts_payload("Lệnh <tiến> & giữ thế.", "quang_trung")
@@ -272,6 +290,11 @@ def validate_multi_character_runtime() -> None:
             raise AssertionError(f"{character_id} positive case should return citations")
         if any(item.get("char_id") != character_id for item in positive["citations"]):
             raise AssertionError(f"{character_id} citations leaked from another character")
+        for citation in positive["citations"]:
+            if int(citation.get("source_tier", 0)) not in {1, 2, 3, 4}:
+                raise AssertionError(f"{character_id} citation missing source_tier: {citation.get('chunk_id')}")
+            if not 0 <= float(citation.get("source_quality_score", -1)) <= 1:
+                raise AssertionError(f"{character_id} citation missing source_quality_score: {citation.get('chunk_id')}")
         lowered_answer = positive["answer"].lower()
         if not any(term.lower() in lowered_answer for term in case["must_contain"]):
             raise AssertionError(f"{character_id} positive answer lacks expected detail: {positive['answer']}")
@@ -296,6 +319,25 @@ def validate_multi_character_runtime() -> None:
                 raise AssertionError(f"{character_id} legacy-afterlife case should remain talking")
             if "đi xa" not in legacy["answer"].lower() and "sau khi" not in legacy["answer"].lower():
                 raise AssertionError("Legacy-afterlife answer should not speak as a direct witness")
+
+    for character_id, case in PERSONA_NATURAL_CASES.items():
+        profile = load_profile(character_id)
+        chunks = load_chunks(character_id)
+        retriever = VectorRetriever(chunks, character_id=character_id)
+        result = answer_query(case["question"], profile, retriever)
+        print("=" * 80)
+        print("PERSONA_NATURAL:", character_id, case["question"])
+        print("STATE:", result["state"])
+        print("MODE:", result["mode"])
+        print("CITATIONS:", [item["chunk_id"] for item in result["citations"]])
+        print("ANSWER:", result["answer"][:700])
+        if result["state"] != "talking":
+            raise AssertionError(f"{character_id} natural persona case should be talking")
+        for forbidden in case["forbidden"]:
+            if forbidden in result["answer"]:
+                raise AssertionError(f"{character_id} answer leaked forbidden phrase: {forbidden}")
+        if not all(term.lower() in result["answer"].lower() for term in case["must_contain"]):
+            raise AssertionError(f"{character_id} answer lacks persona detail: {result['answer']}")
 
 
 def main() -> int:

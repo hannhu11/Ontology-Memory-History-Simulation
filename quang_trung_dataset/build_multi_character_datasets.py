@@ -127,6 +127,51 @@ def infer_source_quality(source_type: str) -> str:
     return QUALITY_BY_SOURCE_TYPE.get(normalized, "curated_secondary")
 
 
+def infer_source_tier(source_title: str, source_type: str, source_quality: str, source_url: str) -> int:
+    blob = " ".join(str(value or "").lower() for value in (source_title, source_type, source_quality, source_url))
+    tier1_terms = (
+        "đại việt sử ký toàn thư",
+        "khâm định việt sử thông giám cương mục",
+        "bảo tàng lịch sử quốc gia",
+        "baotanglichsuquocgia",
+        "chính phủ",
+        "đảng cộng sản",
+        "dangcongsan",
+        "bộ quốc phòng",
+        "qdnd",
+        "tạp chí quốc phòng toàn dân",
+        "hồ chí minh toàn tập",
+        "văn kiện đảng",
+        "historical_document",
+        "digitized_primary",
+        "official_book",
+        "official_book_excerpt",
+        "museum_document",
+        "museum_official",
+    )
+    tier2_terms = (
+        "viện sử học",
+        "vass",
+        "nghiên cứu",
+        "research",
+        "university",
+        "journal",
+        "tạp chí",
+        "nxb",
+        "digitized_secondary",
+        "research_secondary",
+        "national_defense_journal",
+    )
+    tier4_terms = ("wikipedia", "wiki", "wikisource")
+    if any(term in blob for term in tier1_terms):
+        return 1
+    if any(term in blob for term in tier2_terms):
+        return 2
+    if any(term in blob for term in tier4_terms):
+        return 4
+    return 3
+
+
 def infer_intents(record: dict) -> list[str]:
     blob = " ".join(
         [
@@ -173,17 +218,23 @@ def normalize_record(character_id: str, record: dict) -> dict:
     fact = record.get("fact") or text.split(".")[0].strip()
     source_year = record.get("source_year", record.get("year", ""))
     source_type = record.get("source_type", "curated_secondary")
+    source_title = record.get("source_title", "Tư liệu chưa rõ nhan đề")
+    source_url = record.get("source_url", "")
+    source_quality = infer_source_quality(source_type)
+    source_tier = infer_source_tier(source_title, source_type, source_quality, source_url)
     inferred_intents = record.get("answer_intents") or infer_intents(record)
     if not tags:
         tags = [str(topic_title).lower().replace(" ", "_")[:48], *inferred_intents]
     normalized = {
         "char_id": character_id,
         "chunk_id": record["chunk_id"],
-        "source_title": record.get("source_title", "Tư liệu chưa rõ nhan đề"),
+        "source_title": source_title,
         "source_year": source_year,
         "source_type": source_type,
-        "source_url": record.get("source_url", ""),
-        "source_quality": infer_source_quality(source_type),
+        "source_url": source_url,
+        "source_quality": source_quality,
+        "source_tier": source_tier,
+        "source_quality_score": {1: 1.0, 2: 0.78, 3: 0.55, 4: 0.25}[source_tier],
         "topic_title": topic_title,
         "fact": fact,
         "text": text,

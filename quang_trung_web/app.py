@@ -1,10 +1,13 @@
 import html
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
+from uuid import uuid4
 
 import streamlit as st
 import streamlit.components.v1 as components
 
-from llm_provider import generate_character_answer, is_configured
+from llm_provider import clean_generated_answer, is_configured, stream_character_answer_chunks
 from character_registry import (
     CHARACTER_REGISTRY,
     DEFAULT_CHARACTER_ID,
@@ -13,7 +16,15 @@ from character_registry import (
     knowledge_path_for,
     profile_path_for,
 )
-from rag_core import VectorRetriever, answer_query, load_chunks, load_profile
+from rag_core import (
+    VectorRetriever,
+    answer_query,
+    is_generated_answer_acceptable,
+    is_identity_query,
+    is_legacy_afterlife_query,
+    load_chunks,
+    load_profile,
+)
 from tts_provider import synthesize
 
 
@@ -25,6 +36,9 @@ RESPONSE_MODE_LABELS = {
     "guardrail": "Câu hỏi ngoài thời đại hoặc chưa đủ căn cứ",
     "conversation": "Hội thoại ngắn nội bộ",
 }
+
+AUDIO_PENDING_MESSAGE = "Đang tạo âm thanh nhập vai..."
+AUDIO_DISABLED_MESSAGE = "Âm thanh chưa được bật trong phiên này."
 
 
 st.set_page_config(
@@ -106,6 +120,11 @@ def get_runtime(character_id: str, profile_mtime: float, chunks_mtime: float):
     return profile, chunks, retriever
 
 
+@st.cache_resource(show_spinner=False)
+def get_tts_executor() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=2, thread_name_prefix="history-tts")
+
+
 def get_sprite_path(character_id: str, state: str) -> Path | None:
     asset_dir = get_character_config(character_id)["asset_dir"]
     path = asset_dir / f"{state}.png"
@@ -122,6 +141,73 @@ def get_sprite_path(character_id: str, state: str) -> Path | None:
 
 def set_pending_query(query: str) -> None:
     st.session_state.pending_query = query
+
+
+def submit_tts_job(message: dict, character_id: str) -> None:
+    if not message.get("content"):
+        message["tts_message"] = AUDIO_DISABLED_MESSAGE
+        return
+    message["tts_message"] = AUDIO_PENDING_MESSAGE
+    message["tts_ok"] = False
+    message["autoplay_audio"] = False
+    message["tts_future"] = get_tts_executor().submit(synthesize, message["content"], character_id)
+
+
+def resolve_tts_job(message: dict) -> bool:
+    future = message.get("tts_future")
+    if not isinstance(future, Future):
+        return False
+    if not future.done():
+        return True
+    try:
+        tts_result = future.result()
+    except Exception:
+        message["audio_base64"] = None
+        message["tts_message"] = "Âm thanh chưa tạo được trong lượt này."
+        message["tts_ok"] = False
+    else:
+        message["audio_base64"] = tts_result.audio_base64
+        message["tts_message"] = "Đã tạo âm thanh." if tts_result.ok else AUDIO_DISABLED_MESSAGE
+        message["tts_ok"] = tts_result.ok
+        message["autoplay_audio"] = tts_result.ok
+    message.pop("tts_future", None)
+    return False
+
+
+def should_use_streaming_answer(query: str, profile: dict, result: dict) -> bool:
+    return (
+        is_configured()
+        and result.get("state") == "talking"
+        and not is_identity_query(query)
+        and not is_legacy_afterlife_query(query, profile)
+    )
+
+
+def stream_or_render_answer(query: str, profile: dict, result: dict) -> tuple[str, str]:
+    fallback_answer = result["answer"]
+    mode = result.get("mode", "retrieval")
+    answer_box = st.empty()
+
+    if not should_use_streaming_answer(query, profile, result):
+        answer_box.markdown(fallback_answer)
+        return fallback_answer, mode
+
+    collected: list[str] = []
+    answer_box.markdown("Đang gợi ký ức...")
+    for chunk in stream_character_answer_chunks(query, profile, result.get("citations", [])):
+        collected.append(chunk)
+        partial = "".join(collected).strip()
+        if partial:
+            answer_box.markdown(partial)
+
+    raw_answer = "".join(collected).strip()
+    cleaned = clean_generated_answer(raw_answer, profile) if raw_answer else None
+    if cleaned and is_generated_answer_acceptable(query, cleaned):
+        answer_box.markdown(cleaned)
+        return cleaned, "api"
+
+    answer_box.markdown(fallback_answer)
+    return fallback_answer, mode
 
 
 def render_citations(citations: list[dict]) -> None:
@@ -365,6 +451,8 @@ if "last_answer" not in st.session_state:
     st.session_state.last_answer = ""
 if "pending_query" not in st.session_state:
     st.session_state.pending_query = ""
+if "pending_answer" not in st.session_state:
+    st.session_state.pending_answer = None
 if "character_id" not in st.session_state:
     st.session_state.character_id = DEFAULT_CHARACTER_ID
 
@@ -385,6 +473,7 @@ with st.sidebar:
         st.session_state.sprite_state = "idle"
         st.session_state.last_answer = ""
         st.session_state.pending_query = ""
+        st.session_state.pending_answer = None
         st.rerun()
     character_config = get_character_config(character_id)
 
@@ -401,6 +490,7 @@ with st.sidebar:
         st.session_state.sprite_state = "idle"
         st.session_state.last_answer = ""
         st.session_state.pending_query = ""
+        st.session_state.pending_answer = None
         st.rerun()
 
 profile_path = profile_path_for(st.session_state.character_id)
@@ -446,6 +536,7 @@ with left:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             if message["role"] == "assistant":
+                tts_pending = resolve_tts_job(message)
                 if message.get("audio_base64"):
                     render_audio_player(
                         message["audio_base64"],
@@ -453,12 +544,42 @@ with left:
                         autoplay=message.get("autoplay_audio", False),
                     )
                     message["autoplay_audio"] = False
-                elif message.get("tts_message"):
+                elif message.get("tts_message") and (tts_pending or message.get("tts_ok") is False):
                     safe_tts_message = html.escape(message["tts_message"])
                     st.markdown(f'<div class="tts-status">{safe_tts_message}</div>', unsafe_allow_html=True)
                 mode = message.get("mode")
                 render_citations(message.get("citations", []))
                 render_verification_status(mode)
+
+    if st.session_state.pending_answer:
+        pending = st.session_state.pending_answer
+        if pending.get("character_id") == st.session_state.character_id:
+            query_to_answer = pending["query"]
+            with st.chat_message("assistant"):
+                result = answer_query(query_to_answer, profile, retriever, generator=None)
+                answer, mode = stream_or_render_answer(query_to_answer, profile, result)
+                st.session_state.sprite_state = result["state"]
+                st.session_state.last_answer = answer
+                assistant_message = {
+                    "id": f"assistant-{uuid4().hex}",
+                    "role": "assistant",
+                    "content": answer,
+                    "citations": result["citations"],
+                    "mode": mode,
+                    "audio_base64": None,
+                    "tts_message": AUDIO_PENDING_MESSAGE,
+                    "tts_ok": False,
+                    "autoplay_audio": False,
+                }
+                submit_tts_job(assistant_message, st.session_state.character_id)
+                st.session_state.messages.append(assistant_message)
+                if assistant_message.get("tts_message"):
+                    safe_tts_message = html.escape(assistant_message["tts_message"])
+                    st.markdown(f'<div class="tts-status">{safe_tts_message}</div>', unsafe_allow_html=True)
+                render_citations(result["citations"])
+                render_verification_status(mode)
+        st.session_state.pending_answer = None
+        st.rerun()
 
     submitted_query = st.chat_input(f"Hỏi {profile['character_metadata']['name']} về thân thế, sự nghiệp, tư tưởng...")
     query = st.session_state.pending_query or submitted_query
@@ -466,27 +587,13 @@ with left:
 
     if query:
         st.session_state.messages.append({"role": "user", "content": query})
-        generator = (
-            lambda question, active_profile, active_citations: generate_character_answer(
-                question,
-                active_profile,
-                active_citations,
-            )
-        ) if is_configured() else None
-        result = answer_query(query, profile, retriever, generator=generator)
-        tts_result = synthesize(result["answer"], st.session_state.character_id)
-        st.session_state.sprite_state = result["state"]
-        st.session_state.last_answer = result["answer"]
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": result["answer"],
-                "citations": result["citations"],
-                "mode": result.get("mode", "retrieval"),
-                "audio_base64": tts_result.audio_base64,
-                "tts_message": tts_result.message,
-                "tts_ok": tts_result.ok,
-                "autoplay_audio": tts_result.ok,
-            }
-        )
+        st.session_state.pending_answer = {"query": query, "character_id": st.session_state.character_id}
+        st.rerun()
+
+    if any(
+        isinstance(message.get("tts_future"), Future) and not message["tts_future"].done()
+        for message in st.session_state.messages
+        if message.get("role") == "assistant"
+    ):
+        time.sleep(0.7)
         st.rerun()

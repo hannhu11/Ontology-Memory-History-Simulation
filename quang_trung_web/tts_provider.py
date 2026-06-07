@@ -1,5 +1,6 @@
 import html
 import os
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +27,7 @@ VOICE_PROFILES = {
     "quang_trung": {"pitch": "-6st", "rate": "0.95", "label": "Chiến tướng uy dũng"},
     "tran_hung_dao": {"pitch": "-8st", "rate": "0.85", "label": "Quốc công Tiết chế"},
     "nguyen_trai": {"pitch": "-2st", "rate": "0.95", "label": "Ức Trai văn thần"},
-    "ho_chi_minh": {"pitch": "+1st", "rate": "0.85", "label": "Ấm áp, gần gũi"},
+    "ho_chi_minh": {"pitch": "+1.5st", "rate": "0.85", "label": "Ấm áp, gần gũi"},
     "vo_nguyen_giap": {"pitch": "-4st", "rate": "0.90", "label": "Đại tướng điềm tĩnh"},
 }
 GOOGLE_TTS_SSML_PITCH = VOICE_PROFILES[DEFAULT_VOICE_PROFILE]["pitch"]
@@ -40,6 +41,12 @@ class TTSResult:
     message: str
     ok: bool = False
     mime_type: str = "audio/mpeg"
+
+
+class TTSProvider(ABC):
+    @abstractmethod
+    def synthesize(self, text: str, character_id: str) -> TTSResult:
+        raise NotImplementedError
 
 
 def is_configured() -> bool:
@@ -80,38 +87,47 @@ def build_tts_payload(text: str, character_id: str = DEFAULT_VOICE_PROFILE) -> d
     }
 
 
+class GoogleCloudTTSProvider(TTSProvider):
+    def synthesize(self, text: str, character_id: str) -> TTSResult:
+        cleaned_text = text.strip()
+        if not cleaned_text:
+            return TTSResult(audio_base64=None, message="Chưa có nội dung để tạo âm thanh.")
+
+        api_key = os.getenv("GOOGLE_TTS_API_KEY")
+        if not api_key:
+            return TTSResult(audio_base64=None, message="Âm thanh chưa được cấu hình.")
+
+        try:
+            response = requests.post(
+                GOOGLE_TTS_ENDPOINT,
+                params={"key": api_key},
+                json=build_tts_payload(cleaned_text, character_id),
+                timeout=request_timeout_seconds(),
+            )
+        except requests.RequestException:
+            return TTSResult(audio_base64=None, message="Âm thanh chưa tạo được trong lượt này.")
+
+        if response.status_code != 200:
+            return TTSResult(
+                audio_base64=None,
+                message="Âm thanh chưa tạo được trong lượt này.",
+            )
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return TTSResult(audio_base64=None, message="Âm thanh trả về không hợp lệ.")
+
+        audio_base64 = payload.get("audioContent")
+        if not audio_base64:
+            return TTSResult(audio_base64=None, message="Âm thanh trả về không hợp lệ.")
+
+        return TTSResult(audio_base64=audio_base64, message="Đã tạo âm thanh.", ok=True)
+
+
+def get_tts_provider() -> TTSProvider:
+    return GoogleCloudTTSProvider()
+
+
 def synthesize(text: str, character_id: str) -> TTSResult:
-    cleaned_text = text.strip()
-    if not cleaned_text:
-        return TTSResult(audio_base64=None, message="Chưa có nội dung để tạo giọng đọc.")
-
-    api_key = os.getenv("GOOGLE_TTS_API_KEY")
-    if not api_key:
-        return TTSResult(audio_base64=None, message="Chưa cấu hình GOOGLE_TTS_API_KEY trong .env.")
-
-    try:
-        response = requests.post(
-            GOOGLE_TTS_ENDPOINT,
-            params={"key": api_key},
-            json=build_tts_payload(cleaned_text, character_id),
-            timeout=request_timeout_seconds(),
-        )
-    except requests.RequestException:
-        return TTSResult(audio_base64=None, message="Không gọi được Google Text-to-Speech.")
-
-    if response.status_code != 200:
-        return TTSResult(
-            audio_base64=None,
-            message=f"Google Text-to-Speech trả lỗi HTTP {response.status_code}.",
-        )
-
-    try:
-        payload = response.json()
-    except ValueError:
-        return TTSResult(audio_base64=None, message="Google Text-to-Speech trả dữ liệu không hợp lệ.")
-
-    audio_base64 = payload.get("audioContent")
-    if not audio_base64:
-        return TTSResult(audio_base64=None, message="Google Text-to-Speech không trả audioContent.")
-
-    return TTSResult(audio_base64=audio_base64, message="Đã tạo giọng đọc.", ok=True)
+    return get_tts_provider().synthesize(text, character_id)

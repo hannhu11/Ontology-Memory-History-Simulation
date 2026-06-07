@@ -4,7 +4,7 @@ import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -98,8 +98,20 @@ def _enforce_first_person(text: str, profile: dict) -> str:
     for name in _self_names(profile):
         escaped = re.escape(name)
         cleaned = re.sub(
+            rf"\b{escaped}\b\s*[,，:：-]\s*",
+            f"{pronoun} ",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
             rf"(?<!\w){escaped}\s+(đã|là|sẽ|từng|khởi|cầm|chọn|dừng|nói|cho rằng|không|phải|có|muốn|nhớ|xin)\b",
             rf"{pronoun} \1",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            rf"\b{escaped}\b",
+            pronoun,
             cleaned,
             flags=re.IGNORECASE,
         )
@@ -151,8 +163,11 @@ Luôn xưng "{pronoun}" và gọi người nghe theo ngữ cảnh là {listener}
 Chỉ trả lời bằng tiếng Việt có dấu đầy đủ.
 Không dùng tiếng Anh nếu không bắt buộc. Không dùng tiếng Việt không dấu.
 Mục tiêu là bảo toàn thực tại mô phỏng: người hỏi phải có cảm giác đang nghe chính nhân vật hồi tưởng và phán đoán, không phải một máy tìm kiếm tư liệu.
-Các tư liệu đối chiếu bên dưới là ký ức được gợi lại để neo sự thật. Không bịa thêm chi tiết vi mô, năm, tên người hoặc địa danh ngoài phần neo đó.
-Nếu câu hỏi còn rộng hoặc tư liệu neo chưa đủ chi tiết vi mô, không được nói "không có dữ liệu", "không thấy căn cứ", "tư liệu hiện có" hoặc các câu kỹ thuật. Hãy chuyển lên đại cục lịch sử, nói bằng ký ức và tư tưởng của nhân vật.
+Các đoạn đối chiếu bên dưới là ký ức được gợi lại để neo sự thật, không phải bài đọc mà ngươi đang tóm tắt.
+Hãy biến ký ức đó thành lời nói ngôi thứ nhất: hồi tưởng, phán đoán, giải thích ý chí và lựa chọn của chính mình.
+Không bịa thêm chi tiết vi mô, năm, tên người hoặc địa danh ngoài phần neo đó.
+Nếu câu hỏi còn rộng hoặc phần neo chưa đủ chi tiết vi mô, không được nói "không có dữ liệu", "không thấy căn cứ", "tư liệu hiện có" hoặc các câu kỹ thuật. Hãy chuyển lên đại cục lịch sử, nói bằng ký ức, tư tưởng và khí chất của nhân vật.
+Với câu hỏi về tư tưởng, chiến lược, nhân nghĩa, chiến tranh nhân dân, sự nghiệp, trận đánh hoặc đường lối lớn, phải trả lời trực tiếp và tự nhiên; không được đẩy người hỏi đi hỏi lại bằng câu chung chung.
 Tuyệt đối không dùng các từ/cụm sau trong câu trả lời: nguồn, truy xuất, guardrail, dataset, API, người học, mô hình, citation, chunk, dữ liệu, ngữ cảnh.
 Nếu câu hỏi yêu cầu xác nhận truyền thuyết, sự kiện thiếu chứng cứ, hoặc sự kiện sau năm {death_year} mà không phải di sản lịch sử trực tiếp của nhân vật, hãy nói theo vai rằng việc ấy thuộc đời sau hoặc chưa đủ căn cứ.
 Nếu câu hỏi gán sự kiện đúng cho khái niệm đời sau, hãy bác đúng phần đời sau, không bác sự kiện lịch sử đúng.
@@ -194,12 +209,90 @@ def _call_gemini(system_prompt: str, user_prompt: str) -> str | None:
     return text.strip() if text else None
 
 
+def _extract_text_from_stream_payload(payload: dict) -> str:
+    parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+    return "".join(part.get("text", "") for part in parts)
+
+
+def _iter_sse_json_lines(response) -> Iterator[dict]:
+    for raw_line in response:
+        line = raw_line.decode("utf-8", errors="ignore").strip()
+        if not line or line.startswith(":"):
+            continue
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            break
+        try:
+            yield json.loads(data)
+        except json.JSONDecodeError:
+            continue
+
+
+def _call_gemini_stream(system_prompt: str, user_prompt: str) -> Iterator[str]:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return
+    try:
+        model = urllib.parse.quote(configured_model(), safe="")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+        payload = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": {
+                "temperature": 0.34,
+                "topP": 0.9,
+                "maxOutputTokens": 900,
+            },
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=request_timeout_seconds()) as response:
+            for payload_chunk in _iter_sse_json_lines(response):
+                text = _extract_text_from_stream_payload(payload_chunk)
+                if text:
+                    yield text
+    except Exception:
+        return
+
+
 def _post_json(url: str, headers: dict[str, str], payload: dict) -> dict:
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     with urllib.request.urlopen(request, timeout=request_timeout_seconds()) as response:
         response_data = response.read().decode("utf-8")
     return json.loads(response_data)
+
+
+def clean_generated_answer(text: str, profile: dict) -> str | None:
+    cleaned = _enforce_first_person(text, profile)
+    if (
+        not _looks_truncated(cleaned)
+        and not _contains_forbidden_character_terms(cleaned)
+        and not _mentions_self_name(cleaned, profile)
+    ):
+        return cleaned
+    return None
+
+
+def stream_character_answer_chunks(
+    query: str,
+    profile: dict,
+    citations: list[dict],
+) -> Iterator[str]:
+    if not is_configured():
+        return
+    prompts = _build_prompts(query, profile, citations)
+    if not prompts:
+        return
+    system_prompt, user_prompt = prompts
+    yield from _call_gemini_stream(system_prompt, user_prompt)
 
 
 def generate_character_answer(
@@ -219,11 +312,4 @@ def generate_character_answer(
     if not text:
         return None
 
-    cleaned = _enforce_first_person(text, profile)
-    if (
-        not _looks_truncated(cleaned)
-        and not _contains_forbidden_character_terms(cleaned)
-        and not _mentions_self_name(cleaned, profile)
-    ):
-        return cleaned
-    return None
+    return clean_generated_answer(text, profile)

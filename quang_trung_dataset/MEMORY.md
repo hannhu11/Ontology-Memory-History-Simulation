@@ -273,3 +273,45 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `curl -I -H 'Host: history-simulation-ai.online' http://127.0.0.1` trả `200 OK`, không còn redirect sang PetHub.
   - `https://history-simulation-ai.online/` mở đúng app `Đối thoại lịch sử`.
   - `https://pethubvn.store/` vẫn trả `200 OK`, không bị ảnh hưởng.
+
+## Trạng thái nâng cấp hiệu năng, RAG và Simulacra ngày 2026-06-08
+
+- User phản ánh web lag, nhân vật trả lời một màu, RAG có citation lệch intent, đôi khi tự gọi tên mình ở ngôi thứ ba như `Võ Nguyên Giáp...`, và âm thanh làm chậm câu chữ.
+- Nguyên nhân chính trong code cũ: `app.py` xử lý tuần tự `answer_query -> synthesize -> append assistant -> rerun`, nên giao diện phải đợi xong cả Gemini/TTS mới hiện phản hồi; `rag_core.py` còn fallback chung cho nhiều nhân vật; metadata nguồn chưa có tier/rerank đủ mạnh.
+- Đã sửa `quang_trung_web/app.py`:
+  - Thêm cơ chế `pending_answer`: khi submit, câu hỏi user được đưa vào session và rerun trước, sau đó mới xử lý retrieval/answer.
+  - Thêm streaming text qua Gemini SSE ở lớp UI bằng placeholder cập nhật dần; nếu stream không đạt guard nhập vai thì thay bằng fallback nội bộ an toàn.
+  - TTS chạy bằng `ThreadPoolExecutor` nền, lưu `Future` trong session message. Text và citation hiện trước; audio xuất hiện khi job xong. Không block UI vì TTS.
+  - UI vẫn chỉ hiển thị `Âm thanh nhập vai`, không lộ provider/model TTS.
+- Đã sửa `quang_trung_web/llm_provider.py`:
+  - Thêm `stream_character_answer_chunks()` gọi Gemini `streamGenerateContent` dạng SSE.
+  - Thêm `clean_generated_answer()` dùng chung cho stream/non-stream để ép ngôi thứ nhất, lọc thuật ngữ kỹ thuật và tự gọi tên nhân vật.
+  - Prompt được siết lại: context là ký ức được gợi lại, không phải tài liệu để đọc; câu hỏi tư tưởng/chiến lược phải trả lời trực tiếp, không đẩy người dùng hỏi lại.
+- Đã sửa `quang_trung_web/rag_core.py`:
+  - Thêm intent `ideology`, `military_doctrine`, `life_milestone`.
+  - Query rewriting theo từng nhân vật: Võ Nguyên Giáp -> chiến tranh nhân dân/đánh chắc tiến chắc; Hồ Chí Minh -> độc lập tự do/dân là gốc/1911; Nguyễn Trãi -> nhân nghĩa/yên dân/mưu phạt tâm công; Trần Hưng Đạo -> khoan thư sức dân/Hịch tướng sĩ/Bạch Đằng.
+  - Thêm `source_tier` và `source_quality_score` runtime, trust boost, source diversification, giảm Tier 4 khi có nguồn Tier 1/2.
+  - Rerank cộng điểm cho chunk chứa đúng năm trong câu hỏi và anchor mạnh hơn cho Điện Biên Phủ, chiến tranh nhân dân, Ngọc Hồi - Đống Đa.
+  - Fallback multi-character đổi từ câu chung “Câu hỏi ấy còn rộng...” sang persona-specific answer. Câu tư tưởng của Hồ Chí Minh, Nguyễn Trãi, Võ Nguyên Giáp, Trần Hưng Đạo trả lời trực tiếp bằng vai.
+  - Post-process fact chuyển self-name sang ngôi thứ nhất; đã xử lý lỗi “người thanh niên Bác (lấy tên Bác)” thành câu tự nhiên hơn.
+- Đã sửa `quang_trung_web/tts_provider.py`:
+  - Thêm interface `TTSProvider` và `GoogleCloudTTSProvider` để sau này có thể thay provider theo nhân vật mà không phá UI.
+  - Tăng khác biệt Hồ Chí Minh thành `pitch="+1.5st"`, giữ các profile SSML khác như trước.
+  - Error message TTS trong provider đã trung tính, không lộ tên provider/model lên UI.
+- Đã bổ sung metadata `source_tier` và `source_quality_score` vào 5 JSONL dataset:
+  - `quang_trung_dataset/quang_trung_knowledge.jsonl`
+  - `ho_chi_minh_dataset/ho_chi_minh_knowledge.jsonl`
+  - `tran_hung_dao_dataset/tran_hung_dao_knowledge.jsonl`
+  - `nguyen_trai_dataset/nguyen_trai_knowledge.jsonl`
+  - `vo_nguyen_giap_dataset/vo_nguyen_giap_knowledge.jsonl`
+- Đã cập nhật script build/validate:
+  - `build_dataset.py` và `build_multi_character_datasets.py` sinh `source_tier/source_quality_score`.
+  - `validate_dataset.py` và `validate_multi_character.py` bắt buộc kiểm tra hai field này.
+  - `smoke_test.py` có regression cho persona tự nhiên: Võ Nguyên Giáp không tự gọi tên mình, Hồ Chí Minh không trả lời “câu hỏi còn rộng”, Nguyễn Trãi trả lời trực tiếp về nhân nghĩa.
+- Kiểm thử local đã chạy ngày 2026-06-08:
+  - `python -m py_compile ...` cho app/rag/llm/tts/smoke/validators/build scripts -> pass.
+  - `python quang_trung_dataset/validate_dataset.py` -> pass 100 chunks.
+  - `python quang_trung_dataset/validate_multi_character.py` -> pass 5 nhân vật.
+  - `cd quang_trung_web; .\.venv\Scripts\python.exe .\smoke_test.py` -> pass.
+- Lưu ý còn lại: dataset nguồn của 4 nhân vật vẫn cần một đợt bổ sung học thuật riêng để tăng Tier 1 từ các nguồn như `Đại Việt sử ký toàn thư`, `Khâm định Việt sử thông giám cương mục`, Hồ Chí Minh toàn tập, Cổng Bộ Quốc phòng/Quân đội nhân dân. Lượt này mới thêm metadata/rerank và sửa runtime, chưa thay toàn bộ corpus.
+- Khi deploy production: chỉ `git pull` trong `/home/ubuntu/history-ontology`, cài dependency nếu requirements đổi, restart `history-ontology.service`. Không sửa Nginx/PetHub, không mở port 8501, không cat/in `.env`.
