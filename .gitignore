@@ -11,6 +11,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
 *.log
 streamlit.out.log
 streamlit.err.log

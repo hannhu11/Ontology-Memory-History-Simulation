@@ -1,0 +1,274 @@
+from __future__ import annotations
+
+import json
+import os
+import sys
+import traceback
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, Iterable, Iterator
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+LEGACY_WEB_DIR = PROJECT_ROOT / "quang_trung_web"
+if str(LEGACY_WEB_DIR) not in sys.path:
+    sys.path.insert(0, str(LEGACY_WEB_DIR))
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(LEGACY_WEB_DIR / ".env")
+    load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    pass
+
+from character_registry import CHARACTER_REGISTRY, DEFAULT_CHARACTER_ID, get_character_config  # noqa: E402
+from llm_provider import clean_generated_answer, is_configured as llm_is_configured, stream_character_answer_chunks  # noqa: E402
+from rag_core import (  # noqa: E402
+    VectorRetriever,
+    answer_query,
+    compact_text,
+    is_generated_answer_acceptable,
+    is_identity_query,
+    is_legacy_afterlife_query,
+    is_private_life_query,
+    load_chunks,
+    load_profile,
+)
+from tts_provider import synthesize  # noqa: E402
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatStreamRequest(BaseModel):
+    character_id: str = DEFAULT_CHARACTER_ID
+    message: str = Field(min_length=1, max_length=2000)
+    history: list[ChatMessage] = Field(default_factory=list)
+
+
+class TTSRequest(BaseModel):
+    character_id: str = DEFAULT_CHARACTER_ID
+    text: str = Field(min_length=1, max_length=6000)
+
+
+def sse_event(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def public_citation(chunk: dict) -> dict:
+    return {
+        "chunk_id": chunk.get("chunk_id", ""),
+        "source_title": chunk.get("source_title", "Tư liệu không rõ"),
+        "source_url": chunk.get("source_url", ""),
+        "source_year": chunk.get("source_year", ""),
+        "claim_status": chunk.get("claim_status", "established"),
+        "source_tier": chunk.get("source_tier"),
+        "source_quality_score": chunk.get("source_quality_score"),
+        "answer_intents": chunk.get("answer_intents", []),
+        "tags": chunk.get("tags", []),
+        "fact": compact_text(chunk.get("fact") or chunk.get("text", ""), max_words=80),
+    }
+
+
+def portrait_url_for(character_id: str) -> str | None:
+    asset_dir = get_character_config(character_id)["asset_dir"]
+    idle_path = asset_dir / "idle.png"
+    if idle_path.exists():
+        return f"/assets/{character_id}/idle.png"
+    return None
+
+
+class RuntimeStore:
+    def __init__(self) -> None:
+        self.profiles: dict[str, dict] = {}
+        self.chunks: dict[str, list[dict]] = {}
+        self.retrievers: dict[str, VectorRetriever] = {}
+        self.loaded = False
+
+    def preload(self) -> None:
+        if self.loaded:
+            return
+        for character_id in CHARACTER_REGISTRY:
+            profile = load_profile(character_id)
+            chunks = load_chunks(character_id)
+            retriever = VectorRetriever(chunks, character_id=character_id)
+            self.profiles[character_id] = profile
+            self.chunks[character_id] = chunks
+            self.retrievers[character_id] = retriever
+        self.loaded = True
+
+    def character_ids(self) -> list[str]:
+        return list(self.profiles.keys())
+
+    def get(self, character_id: str) -> tuple[dict, VectorRetriever]:
+        if character_id not in self.profiles:
+            raise HTTPException(status_code=404, detail="Unknown character_id")
+        return self.profiles[character_id], self.retrievers[character_id]
+
+
+runtime = RuntimeStore()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    runtime.preload()
+    yield
+
+
+app = FastAPI(title="History Ontology Simulation API", version="2.0.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+ASSET_ROOT = LEGACY_WEB_DIR / "assets"
+if ASSET_ROOT.exists():
+    app.mount("/assets", StaticFiles(directory=ASSET_ROOT), name="assets")
+
+
+@app.get("/api/health")
+def health() -> dict:
+    if not runtime.loaded:
+        runtime.preload()
+    return {
+        "ok": True,
+        "runtime": "fastapi",
+        "characters_loaded": runtime.character_ids(),
+        "llm_configured": llm_is_configured(),
+    }
+
+
+@app.get("/api/characters")
+def characters() -> dict:
+    if not runtime.loaded:
+        runtime.preload()
+    payload = []
+    for character_id, config in CHARACTER_REGISTRY.items():
+        profile = runtime.profiles.get(character_id) or load_profile(character_id)
+        metadata = profile.get("character_metadata", {})
+        payload.append(
+            {
+                "character_id": character_id,
+                "display_name": config["display_name"],
+                "era": metadata.get("era", ""),
+                "death_year": metadata.get("death_year"),
+                "edge_cases": config.get("edge_cases", []),
+                "portrait_url": portrait_url_for(character_id),
+            }
+        )
+    return {"characters": payload, "default_character_id": DEFAULT_CHARACTER_ID}
+
+
+def should_stream_with_gemini(query: str, profile: dict, result: dict) -> bool:
+    return (
+        llm_is_configured()
+        and result.get("state") == "talking"
+        and result.get("mode") not in {"guardrail", "conversation"}
+        and not is_identity_query(query)
+        and not is_private_life_query(query)
+        and not is_legacy_afterlife_query(query, profile)
+    )
+
+
+def tokenized_fallback(answer: str) -> Iterator[str]:
+    words = answer.split(" ")
+    for index, word in enumerate(words):
+        if index:
+            yield " "
+        yield word
+
+
+def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
+    try:
+        character_id = request.character_id if request.character_id in CHARACTER_REGISTRY else DEFAULT_CHARACTER_ID
+        profile, retriever = runtime.get(character_id)
+        query = request.message.strip()
+        yield sse_event("start", {"character_id": character_id, "status": "Đang gợi ký ức"})
+
+        result = answer_query(query, profile, retriever, generator=None)
+        citations = [public_citation(chunk) for chunk in result.get("citations", [])]
+        yield sse_event(
+            "retrieval",
+            {
+                "mode": result.get("mode", "retrieval"),
+                "state": result.get("state", "talking"),
+                "citations": citations,
+            },
+        )
+
+        fallback_answer = result.get("answer", "")
+        final_answer = fallback_answer
+        mode = result.get("mode", "retrieval")
+        emitted_stream = False
+
+        if should_stream_with_gemini(query, profile, result):
+            collected: list[str] = []
+            for token in stream_character_answer_chunks(query, profile, result.get("citations", [])):
+                emitted_stream = True
+                collected.append(token)
+                yield sse_event("token", {"text": token})
+            raw_answer = "".join(collected).strip()
+            cleaned = clean_generated_answer(raw_answer, profile) if raw_answer else None
+            if cleaned and is_generated_answer_acceptable(query, cleaned):
+                final_answer = cleaned
+                mode = "api"
+            elif not emitted_stream:
+                for token in tokenized_fallback(fallback_answer):
+                    yield sse_event("token", {"text": token})
+                final_answer = fallback_answer
+        else:
+            for token in tokenized_fallback(fallback_answer):
+                yield sse_event("token", {"text": token})
+
+        yield sse_event(
+            "final",
+            {
+                "answer": final_answer,
+                "mode": mode,
+                "state": result.get("state", "talking"),
+                "citations": citations,
+            },
+        )
+    except Exception as exc:
+        if os.getenv("HISTORY_DEBUG_ERRORS") == "1":
+            traceback.print_exc()
+        yield sse_event("error", {"message": "Không tạo được câu trả lời trong lượt này.", "detail": str(exc)})
+
+
+@app.post("/api/chat/stream")
+def chat_stream(request: ChatStreamRequest) -> StreamingResponse:
+    if not runtime.loaded:
+        runtime.preload()
+    return StreamingResponse(
+        stream_chat_response(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.post("/api/tts")
+def tts(request: TTSRequest) -> dict:
+    character_id = request.character_id if request.character_id in CHARACTER_REGISTRY else DEFAULT_CHARACTER_ID
+    result = synthesize(request.text, character_id)
+    return {
+        "ok": result.ok,
+        "audio_base64": result.audio_base64,
+        "mime_type": result.mime_type,
+        "message": result.message,
+    }

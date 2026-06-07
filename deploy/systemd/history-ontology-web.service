@@ -1,0 +1,16 @@
+[Unit]
+Description=History Ontology Next.js frontend
+After=network.target history-ontology-api.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/history-ontology/frontend
+Environment=NODE_ENV=production
+Environment=HISTORY_API_URL=http://127.0.0.1:8601
+ExecStart=/usr/bin/npm run start -- --hostname 172.19.0.1 --port 8501
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

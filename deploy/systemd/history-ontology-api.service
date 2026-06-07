@@ -1,0 +1,15 @@
+[Unit]
+Description=History Ontology FastAPI backend
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/history-ontology
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/history-ontology/quang_trung_web/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8601
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

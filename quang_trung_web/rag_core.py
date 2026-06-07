@@ -8,6 +8,7 @@ import re
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -340,6 +341,18 @@ INTENT_QUERY_TERMS = {
         "may bay",
         "dien thoai",
     },
+    "private_life_sensitive": {
+        "vo khong",
+        "co vo",
+        "bac co vo",
+        "nguoi yeu",
+        "ket hon",
+        "cuoi vo",
+        "doi tu",
+        "chuyen rieng",
+        "gia dinh rieng",
+        "hon nhan",
+    },
 }
 
 
@@ -402,6 +415,7 @@ def query_intents(query: str) -> set[str]:
         intents.add("anachronism")
     for primary in (
         "anachronism",
+        "private_life_sensitive",
         "capital_city",
         "administration",
         "coinage",
@@ -419,6 +433,13 @@ def query_intents(query: str) -> set[str]:
         if primary in intents:
             return {primary}
     return intents
+
+
+@lru_cache(maxsize=2)
+def cached_embedding_model(model_name: str):
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(model_name)
 
 
 def chunk_intents(chunk: dict) -> set[str]:
@@ -966,6 +987,44 @@ def is_smalltalk_query(query: str) -> bool:
     )
 
 
+def is_private_life_query(query: str) -> bool:
+    normalized = normalize(query)
+    return any(
+        has_phrase(normalized, phrase)
+        for phrase in (
+            "vo khong",
+            "co vo",
+            "bac co vo",
+            "nguoi yeu",
+            "ket hon",
+            "cuoi vo",
+            "doi tu",
+            "chuyen rieng",
+            "gia dinh rieng",
+            "hon nhan",
+        )
+    )
+
+
+def is_quang_trung_self_name_confusion(query: str, profile: dict | None = None) -> bool:
+    if profile and profile_character_id(profile) != DEFAULT_CHARACTER_ID:
+        return False
+    normalized = normalize(query)
+    has_self_name = any(has_phrase(normalized, phrase) for phrase in ("nguyen hue", "quang trung", "bac binh vuong"))
+    has_relation = any(
+        has_phrase(normalized, phrase)
+        for phrase in (
+            "anh em",
+            "la anh em",
+            "co phai anh em",
+            "quan he gi",
+            "la ai",
+            "co phai la",
+        )
+    )
+    return has_self_name and has_relation
+
+
 def resolve_character_id(character_or_dir: Path | str = DEFAULT_CHARACTER_ID) -> str:
     if isinstance(character_or_dir, Path):
         return DEFAULT_CHARACTER_ID
@@ -1189,7 +1248,6 @@ class VectorRetriever:
     def _init_vector_backend(self) -> None:
         try:
             import chromadb
-            from sentence_transformers import SentenceTransformer
         except Exception:
             return
 
@@ -1205,7 +1263,7 @@ class VectorRetriever:
             previous = {}
             if metadata_path.exists():
                 previous = json.loads(metadata_path.read_text(encoding="utf-8"))
-            embedding_model = SentenceTransformer(self.model_name)
+            embedding_model = cached_embedding_model(self.model_name)
             if previous.get("fingerprint") != fingerprint or previous.get("model_name") != self.model_name:
                 existing = collection.get(include=[])
                 existing_ids = existing.get("ids", [])
@@ -1569,6 +1627,38 @@ def build_afterlife_answer(query: str, profile: dict) -> str:
     )
 
 
+def build_private_life_answer(query: str, profile: dict) -> str:
+    character_id = profile_character_id(profile)
+    if character_id == "ho_chi_minh":
+        return (
+            "Chuyện riêng tư của Bác, nhất là chuyện hôn nhân, đời sau còn có nhiều lời kể và cách hiểu khác nhau. "
+            "Bác không muốn lấy điều chưa thật chắc để làm lời khẳng định trước các cháu. Điều Bác có thể nói rõ là "
+            "đời mình đã đặt độc lập của nước, tự do của dân và hạnh phúc của đồng bào lên trước hết."
+        )
+    if character_id == "vo_nguyen_giap":
+        return (
+            "Chuyện gia đình là phần rất riêng của đời tôi, nhưng cũng không nên nói lấp lửng như một khẩu hiệu. "
+            "Tôi từng có gia đình, từng chịu mất mát trong chiến tranh, và chính những mất mát ấy càng làm tôi hiểu "
+            "giá trị của độc lập, của sự sống con người, để khi cầm quân phải cân nhắc từng sinh mạng chiến sĩ."
+        )
+    if character_id == "nguyen_trai":
+        return (
+            "Chuyện riêng trong đời ta không nên đem làm lời đồn đãi cho vui miệng. Nếu hỏi để hiểu con người, hãy nhớ "
+            "rằng một kẻ sĩ cũng có nỗi đau, tình thân và oan khuất; nhưng khi bàn việc nước, ta đặt nhân nghĩa, yên dân "
+            "và trách nhiệm với non sông lên trước."
+        )
+    if character_id == "tran_hung_dao":
+        return (
+            "Chuyện gia thất của ta không phải điều nên đem ra xét như chuyện ngoài chợ. Người giữ việc lớn phải biết "
+            "lấy đạo nhà, đạo nước và lòng trung nghĩa làm trọng; điều gì không giúp hiểu phép giữ nước thì chớ biến "
+            "thành lời đồn."
+        )
+    return (
+        "Chuyện riêng của ta không phải thứ để hậu thế gạn hỏi như chuyện đồn. Nếu muốn hiểu con người ta, hãy nhìn "
+        "việc cầm quân, việc trị nước và những lựa chọn trước vận nước, vì ở đó mới thấy rõ chí hướng."
+    )
+
+
 def build_identity_answer(profile: dict, hits: list[Hit]) -> str:
     metadata = profile["character_metadata"]
     pronoun = first_person_for(profile)
@@ -1592,6 +1682,8 @@ def build_generic_character_answer(query: str, profile: dict, hits: list[Hit]) -
             f"Việc ấy {pronoun} chưa thể nhận là thật. Lịch sử liên quan đến danh dự quốc gia và con người, "
             "nên điều chưa đủ căn cứ thì phải nói là chưa đủ căn cứ."
         ), "confused"
+    if is_private_life_query(query):
+        return build_private_life_answer(query, profile), "talking"
     if is_smalltalk_query(query) and not is_identity_query(query):
         topics = ", ".join(
             hit.chunk.get("topic_title", "")
@@ -1648,6 +1740,17 @@ def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
             "phải xét rất nghiêm; chớ vội biến lời truyền chưa rõ thành sử thực."
         )
         return answer, "confused"
+
+    if is_private_life_query(query):
+        return build_private_life_answer(query, profile), "talking"
+
+    if is_quang_trung_self_name_confusion(query, profile):
+        answer = (
+            "Nguyễn Huệ là tên của ta trước khi lấy niên hiệu Quang Trung, không phải một người anh em nào khác. "
+            "Hậu thế có thể gọi ta là Nguyễn Huệ, Bắc Bình vương hay Hoàng đế Quang Trung, nhưng đều chỉ về một người: "
+            "kẻ đã dựng cờ Tây Sơn, đánh quân Xiêm ở Rạch Gầm - Xoài Mút và phá quân Thanh ở Ngọc Hồi - Đống Đa."
+        )
+        return answer, "talking"
 
     if is_smalltalk_query(query) and not is_identity_query(query):
         answer = (

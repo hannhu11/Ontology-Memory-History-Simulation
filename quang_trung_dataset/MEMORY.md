@@ -340,3 +340,42 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `cd quang_trung_web; .\.venv\Scripts\python.exe .\smoke_test.py` -> pass.
 - Lưu ý còn lại: dataset nguồn của 4 nhân vật vẫn cần một đợt bổ sung học thuật riêng để tăng Tier 1 từ các nguồn như `Đại Việt sử ký toàn thư`, `Khâm định Việt sử thông giám cương mục`, Hồ Chí Minh toàn tập, Cổng Bộ Quốc phòng/Quân đội nhân dân. Lượt này mới thêm metadata/rerank và sửa runtime, chưa thay toàn bộ corpus.
 - Khi deploy production: chỉ `git pull` trong `/home/ubuntu/history-ontology`, cài dependency nếu requirements đổi, restart `history-ontology.service`. Không sửa Nginx/PetHub, không mở port 8501, không cat/in `.env`.
+
+## Chuyển production khỏi Streamlit sang FastAPI + Next.js ngày 2026-06-08
+
+- User quyết định thay trực tiếp production vì Streamlit còn lag khi mở trang/chuyển nhân vật và có nguy cơ state stale do cơ chế rerun/file watcher.
+- Đã thêm kiến trúc mới:
+  - `backend/`: FastAPI API, preload 5 nhân vật khi startup, endpoint `GET /api/health`, `GET /api/characters`, `POST /api/chat/stream` SSE, `POST /api/tts`.
+  - `frontend/`: Next.js App Router + TypeScript + Zustand, UI Neo Kinpaku, SSE client, audio gọi sau `final`, không lộ provider/model TTS.
+  - `deploy/systemd/history-ontology-api.service`: FastAPI nghe `127.0.0.1:8601`.
+  - `deploy/systemd/history-ontology-web.service`: Next.js nghe `172.19.0.1:8501` để giữ Nginx/PetHub hiện tại.
+- `quang_trung_web/` không bị xóa; giờ là shared RAG runtime + legacy Streamlit rollback. Nếu service mới lỗi, rollback:
+  - `sudo systemctl stop history-ontology-web.service history-ontology-api.service`
+  - `sudo systemctl start history-ontology.service`
+- Đã vá lõi RAG dùng chung:
+  - `rag_core.py` dùng `cached_embedding_model()` bằng `lru_cache`, giảm load embedding model lặp lại giữa các retriever.
+  - Thêm intent/hàm xử lý `private_life_sensitive`; câu `BÁC CÓ VỢ KHÔNG` trả lời thận trọng, không còn fallback khẩu hiệu `Việc gì có lợi cho dân...`.
+  - Thêm nhận diện nhầm lẫn `Nguyễn Huệ`/`Quang Trung`; câu `ông với Nguyễn Huệ là anh em à` trả lời rõ Nguyễn Huệ là tên của ta, không phải anh em.
+- Đã thêm `source_manifest.json` để ghi chính sách Tier 1-4 và các intent còn yếu cho từng nhân vật. Manifest là định hướng data quality, không chứa secret.
+- Kiểm thử local đã chạy trước deploy:
+  - `python -m py_compile backend\main.py backend\smoke_test.py quang_trung_web\rag_core.py quang_trung_web\llm_provider.py quang_trung_web\tts_provider.py quang_trung_web\character_registry.py` -> pass.
+  - `python quang_trung_dataset\validate_dataset.py` -> pass.
+  - `python quang_trung_dataset\validate_multi_character.py` -> pass.
+  - `python backend\smoke_test.py` -> pass, gồm các regression: Nguyễn Huệ/Quang Trung, đời tư Hồ Chí Minh, Võ Nguyên Giáp không tự gọi tên mình.
+  - `cd frontend; npm install; npm run build` -> pass, First Load JS khoảng 108 kB.
+  - Playwright local `127.0.0.1:8502`: đổi Quang Trung -> Trần Hưng Đạo -> Hồ Chí Minh reset đúng state; Bạch Đằng trả lời đúng vai; câu đời tư Hồ Chí Minh không còn fallback lặp; UI không hiển thị `Google TTS`/`vi-VN-Neural2-D`.
+- Cảnh báo npm: `npm install` báo 2 moderate vulnerabilities. Không chạy `npm audit fix --force` vì có thể nâng major dependency và phá build. Cần xử lý riêng nếu muốn hardening sau production.
+- Quy trình deploy production mới:
+  - `cd /home/ubuntu/history-ontology && git pull --ff-only origin main`
+  - `/home/ubuntu/history-ontology/quang_trung_web/.venv/bin/python -m pip install -r backend/requirements.txt`
+  - `cd frontend && npm ci && npm run build`
+  - `sudo cp /home/ubuntu/history-ontology/deploy/systemd/history-ontology-api.service /etc/systemd/system/`
+  - `sudo cp /home/ubuntu/history-ontology/deploy/systemd/history-ontology-web.service /etc/systemd/system/`
+  - `sudo systemctl daemon-reload`
+  - `sudo systemctl enable --now history-ontology-api.service`
+  - `curl -fsS http://127.0.0.1:8601/api/health`
+  - `sudo systemctl stop history-ontology.service`
+  - `sudo systemctl enable --now history-ontology-web.service`
+  - `curl -I http://172.19.0.1:8501`
+  - kiểm tra `https://history-simulation-ai.online/` và `https://pethubvn.store/`.
+- Không push/cat `.env`, API key, SSH key, `.rag_index`, `.venv`, cache, log, `.next`, `node_modules`.

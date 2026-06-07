@@ -1,0 +1,80 @@
+{
+  "schema_version": "2026-06-08",
+  "tier_policy": {
+    "tier_1": "Sử liệu cổ/chính thống nhà nước, bảo tàng, cơ quan chính phủ, Bộ Quốc phòng, Văn kiện Đảng, Hồ Chí Minh toàn tập.",
+    "tier_2": "Sách nghiên cứu, tạp chí học thuật, NXB, viện/trường uy tín.",
+    "tier_3": "Báo/chuyên trang có biên tập và nguồn rõ.",
+    "tier_4": "Wiki/Wikisource phụ trợ, chỉ dùng khi thiếu nguồn tốt hơn cùng intent."
+  },
+  "characters": {
+    "quang_trung": {
+      "preferred_tier_1_sources": [
+        "Việt Nam sử lược",
+        "Bảo tàng Lịch sử Quốc gia",
+        "Tạp chí Quốc phòng toàn dân",
+        "Văn kiện Đảng / NXB Chính trị Quốc gia Sự thật"
+      ],
+      "weak_intents": [
+        "đời tư cá nhân",
+        "quan hệ tên gọi/nhầm lẫn Nguyễn Huệ - Quang Trung",
+        "nguồn triều Nguyễn đối chiếu sâu"
+      ]
+    },
+    "tran_hung_dao": {
+      "preferred_tier_1_sources": [
+        "Đại Việt sử ký toàn thư",
+        "Khâm định Việt sử thông giám cương mục",
+        "Bảo tàng Lịch sử Quốc gia",
+        "nguồn Bộ Quốc phòng/Tạp chí Quốc phòng toàn dân"
+      ],
+      "weak_intents": [
+        "chi tiết vi mô trận Bạch Đằng",
+        "trích đoạn Hịch tướng sĩ có văn bản đối chiếu",
+        "đời tư/gia tộc"
+      ]
+    },
+    "nguyen_trai": {
+      "preferred_tier_1_sources": [
+        "Bình Ngô đại cáo",
+        "Quân trung từ mệnh tập",
+        "Đại Việt sử ký toàn thư",
+        "nguồn viện/trường về Nguyễn Trãi"
+      ],
+      "weak_intents": [
+        "án Lệ Chi Viên và mức độ tranh luận",
+        "đời tư",
+        "đối chiếu bản dịch cổ"
+      ]
+    },
+    "ho_chi_minh": {
+      "preferred_tier_1_sources": [
+        "Hồ Chí Minh toàn tập",
+        "Văn kiện Đảng",
+        "Cổng Thông tin Chính phủ",
+        "Báo Nhân Dân",
+        "Bảo tàng Hồ Chí Minh"
+      ],
+      "weak_intents": [
+        "đời tư nhạy cảm",
+        "di sản sau 1969",
+        "phân biệt lời trích dẫn nguyên văn và diễn giải"
+      ]
+    },
+    "vo_nguyen_giap": {
+      "preferred_tier_1_sources": [
+        "Bộ Quốc phòng",
+        "Tạp chí Quốc phòng toàn dân",
+        "Báo Quân đội nhân dân",
+        "Văn kiện Đảng",
+        "hồi ký/tác phẩm của Đại tướng"
+      ],
+      "weak_intents": [
+        "tư tưởng quân sự tổng hợp",
+        "Điện Biên Phủ chi tiết theo từng giai đoạn",
+        "đời tư/gia đình",
+        "so sánh chiến lược hiện đại"
+      ]
+    }
+  },
+  "runtime_rule": "Retriever phải ưu tiên tier 1/2 đúng nhân vật và đúng intent; wiki bị demote khi cùng intent có nguồn chính thống tốt hơn."
+}

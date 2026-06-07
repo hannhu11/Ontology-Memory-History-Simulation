@@ -1,6 +1,11 @@
-# Multi-Character History Simulation Web
+# Legacy Streamlit + Shared RAG Runtime
 
-Ứng dụng Streamlit cho prototype `Ontology-Memory-History-Simulation`: đối thoại nhập vai với 5 nhân vật lịch sử, có RAG đối chiếu tư liệu, guardrail sai thời đại, streaming text và âm thanh nhập vai chạy nền.
+Thư mục này hiện giữ hai vai trò:
+
+- Runtime dùng chung cho production mới: `character_registry.py`, `rag_core.py`, `llm_provider.py`, `tts_provider.py`, assets và smoke tests.
+- Ứng dụng Streamlit legacy để rollback nếu service Next.js/FastAPI gặp lỗi production.
+
+Production chính hiện nằm ở `backend/` + `frontend/`; không phát triển UI mới trên Streamlit trừ khi cần hotfix rollback.
 
 ## Nhân vật hiện có
 
@@ -12,7 +17,7 @@
 
 `character_registry.py` là nguồn cấu hình duy nhất cho UI, dataset path, asset path, edge-case buttons và voice label.
 
-## Chạy local
+## Chạy legacy Streamlit local
 
 ```powershell
 cd quang_trung_web
@@ -35,19 +40,18 @@ Không commit `.env`. Các biến chính:
 
 Chỉ mục vector được tách theo nhân vật tại `.rag_index\<character_id>` và tự rebuild khi JSONL đổi.
 
-## Multi-Character RAG
+## Multi-Character RAG Shared Runtime
 
 `rag_core.py` không còn hardcode Quang Trung. Loader nhận `character_id`, tự nạp `<character_id>_profile.json` và `<character_id>_knowledge.jsonl`.
 
-Luồng runtime:
+Luồng production mới:
 
-1. UI chọn nhân vật trong sidebar.
-2. App reset hội thoại khi đổi nhân vật.
-3. RAG nạp đúng profile/chunks và index riêng cho nhân vật.
-4. Guardrail dùng `death_year` của nhân vật.
-5. Reranker ưu tiên đúng intent, đúng nhân vật, nguồn chính thống hơn và khử trùng lặp citation.
-6. Gemini nhận profile, tone, citation và quy tắc bảo toàn Simulacra.
-7. Text được render trước; âm thanh nhập vai tạo sau bằng job nền để không block UI.
+1. FastAPI preload đúng profile/chunks/retriever cho 5 nhân vật lúc server start.
+2. Next.js đổi nhân vật bằng state client, reset chat/citation/audio ngay, không rerun Python script.
+3. RAG dùng đúng `character_id`, index riêng và guardrail theo `death_year`.
+4. Reranker ưu tiên đúng intent, đúng nhân vật, nguồn chính thống hơn và khử trùng lặp citation.
+5. Gemini nhận profile, tone, citation và quy tắc bảo toàn Simulacra.
+6. Text stream qua SSE; âm thanh nhập vai gọi qua `/api/tts` sau `final`, không block chữ.
 
 Với Quang Trung, retriever có query rewriting cho đại từ `vua`, `ngài`, `ông`, `ta`, đồng thời route các câu “trận hãnh diện/đáng nhớ” về Ngọc Hồi - Đống Đa và Rạch Gầm - Xoài Mút. Với các nhân vật khác, runtime dùng query variants theo persona và intent `ideology`, `military_doctrine`, `life_milestone` để tránh trả lời tiểu sử khi người dùng hỏi tư tưởng hoặc chiến lược.
 
@@ -104,8 +108,13 @@ python .\quang_trung_dataset\build_multi_character_datasets.py
 python .\quang_trung_dataset\validate_dataset.py
 python .\quang_trung_dataset\validate_multi_character.py
 python -m py_compile .\quang_trung_web\app.py .\quang_trung_web\rag_core.py .\quang_trung_web\llm_provider.py .\quang_trung_web\tts_provider.py .\quang_trung_web\smoke_test.py .\quang_trung_web\character_registry.py
+python -m py_compile .\backend\main.py .\backend\smoke_test.py
+python .\backend\smoke_test.py
 cd quang_trung_web
 .\.venv\Scripts\python.exe .\smoke_test.py
+cd ..\frontend
+npm install
+npm run build
 ```
 
 Smoke test hiện kiểm tra:
@@ -121,7 +130,7 @@ Smoke test hiện kiểm tra:
 ## Files
 
 - `character_registry.py`: registry 5 nhân vật.
-- `app.py`: Streamlit UI, chọn nhân vật, chat, citation, TTS player.
+- `app.py`: Streamlit legacy UI/rollback.
 - `rag_core.py`: loader multi-character, hybrid retrieval, intent routing, guardrail, simulation fallback.
 - `llm_provider.py`: Gemini-only generator, prompt bảo toàn Simulacra.
 - `tts_provider.py`: Google TTS REST, SSML voice profiles, trả audio base64.
