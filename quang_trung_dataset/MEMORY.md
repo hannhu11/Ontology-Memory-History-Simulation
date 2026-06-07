@@ -379,3 +379,28 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `curl -I http://172.19.0.1:8501`
   - kiểm tra `https://history-simulation-ai.online/` và `https://pethubvn.store/`.
 - Không push/cat `.env`, API key, SSH key, `.rag_index`, `.venv`, cache, log, `.next`, `node_modules`.
+
+## Deploy production FastAPI + Next.js hoàn tất ngày 2026-06-08
+
+- Commit production đã deploy: `9f6c107` (`Replace Streamlit production with FastAPI Next stack`).
+- Server `/home/ubuntu/history-ontology` đã `git pull --ff-only origin main`, cài `backend/requirements.txt`, chạy validate/smoke và build Next.js.
+- Service mới:
+  - `history-ontology-api.service`: active, FastAPI nghe `127.0.0.1:8601`, health `{"ok": true, "runtime": "fastapi", "characters_loaded": [...]}`.
+  - `history-ontology-web.service`: active, Next.js nghe `172.19.0.1:8501`, log báo `Ready in 360ms`.
+  - `history-ontology.service`: inactive, giữ làm rollback Streamlit.
+- Acceptance checks sau deploy:
+  - `curl -fsS http://127.0.0.1:8601/api/health` -> pass.
+  - `curl -I http://172.19.0.1:8501` -> `HTTP/1.1 200 OK`, header `X-Powered-By: Next.js`.
+  - `curl -I -H 'Host: history-simulation-ai.online' http://127.0.0.1` -> `HTTP/1.1 200 OK`, không redirect sang PetHub.
+  - `https://history-simulation-ai.online/` -> `HTTP/2 200`, Cloudflare phục vụ app Next.js.
+  - `https://pethubvn.store/` -> `HTTP/2 200`, không bị ảnh hưởng.
+  - Đo nhanh trên VPS: History `time_total≈0.058s`, PetHub `time_total≈0.056s`.
+- Browser production bằng Playwright:
+  - Load app mới thấy selectbox đủ 5 nhân vật.
+  - Câu `ông với Nguyễn Huệ là anh em à` trả lời đúng: Nguyễn Huệ là tên của ta, không phải anh em.
+  - Audio xuất hiện nhưng UI chỉ hiển thị `Âm thanh nhập vai`, không lộ provider/model TTS.
+  - Đổi từ Quang Trung sang Hồ Chí Minh reset sạch chat/audio/portrait, không stale state.
+- Cảnh báo còn lại:
+  - FastAPI startup lần đầu khoảng 15 giây vì preload embedding/RAG cho 5 nhân vật; runtime sau warm nhanh.
+  - Log API có cảnh báo HF Hub unauthenticated; không ảnh hưởng chạy hiện tại nhưng có thể đặt `HF_TOKEN` sau nếu muốn tải model nhanh/ổn định hơn.
+  - `npm ci` báo 2 moderate vulnerabilities; chưa chạy `npm audit fix --force` để tránh phá dependency trước production.
