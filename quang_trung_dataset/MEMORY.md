@@ -235,6 +235,16 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 - Đã đồng bộ `quang_trung_web/`, `quang_trung_dataset/` và 4 dataset mới vào repo backup `https://github.com/hannhu11/Ontology-Memory-History-Simulation`.
 - Commit code/dataset chính đã push lên branch `main`: `bf5b679` (`Add multi-character simulacra RAG`).
 - Trước khi push đã chạy secret scan trong `github_dataset_repo`, không phát hiện `GEMINI_API_KEY`, Google TTS key, token hoặc Groq/provider cũ trong staged diff.
+
+## Hotfix kiểm soát câu Bạch Đằng Trần Hưng Đạo ngày 2026-06-08
+
+- Sau smoke test production phát hiện câu `Đại Vương kể trận Bạch Đằng năm 1288` tuy pass nhưng câu trả lời/citation có nguy cơ lẫn chunk ngoại giao hậu chiến và sự kiện 1285.
+- Đã thêm route riêng trong `rag_core.py` cho Trần Hưng Đạo/Bạch Đằng 1288:
+  - nhận diện `Bạch Đằng`, `Ô Mã Nhi`, `bãi cọc`, `thủy triều`, `1288`;
+  - bổ sung query variants theo diễn biến trận thủy chiến;
+  - selector citation riêng ưu tiên chunk đúng trận, loại/đẩy lùi `ngoại_giao`, `hậu_chiến`, `hòa_bình`, `1285`, `Diên Hồng`, `Lý Hằng`;
+  - câu trả lời nhập vai nói trực tiếp về thủy triều, bãi cọc, dụ Ô Mã Nhi và tổng công kích, không ghép fact rời.
+- `smoke_test.py` đã siết case này: câu trả lời phải có đủ `Bạch Đằng`, `Ô Mã Nhi`, `bãi cọc`, `thủy triều` và citation không được lẫn off-target 1285/ngoại giao/hậu chiến.
 - Server local đã restart ở `http://127.0.0.1:8501`; browser check xác nhận sidebar có đủ 5 nhân vật, selectbox/profile khớp sau khi clear session, audio status chỉ còn một block theo nhân vật đang chọn.
 - Nếu chat mới tiếp tục nhiệm vụ, đọc file này trước, sau đó kiểm tra `git -C github_dataset_repo log -1 --oneline` để biết commit backup mới nhất.
 

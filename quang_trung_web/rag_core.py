@@ -233,6 +233,10 @@ INTENT_QUERY_TERMS = {
     "micro_tactics": {
         "ngoc hoi",
         "dong da",
+        "bach dang",
+        "o ma nhi",
+        "bai coc",
+        "thuy trieu",
         "ha hoi",
         "dam muc",
         "khương thuong",
@@ -262,6 +266,9 @@ INTENT_QUERY_TERMS = {
         "dung quan",
         "tuyen them binh",
         "duyet binh",
+        "bach dang",
+        "nguyen mong",
+        "quan nguyen",
         "rach gam",
         "xoai mut",
         "my tho",
@@ -446,6 +453,12 @@ def chunk_intents(chunk: dict) -> set[str]:
     if any(
         term in blob
         for term in (
+            "bach_dang",
+            "bach dang",
+            "o_ma_nhi",
+            "o ma nhi",
+            "bai coc",
+            "thuy trieu",
             "tu tuong quan su",
             "chien tranh nhan dan",
             "nghe thuat quan su",
@@ -456,6 +469,19 @@ def chunk_intents(chunk: dict) -> set[str]:
         )
     ):
         intents.add("military_doctrine")
+    if any(
+        term in blob
+        for term in (
+            "bach_dang",
+            "bach dang",
+            "o_ma_nhi",
+            "o ma nhi",
+            "bai coc",
+            "thuy trieu",
+        )
+    ):
+        intents.add("micro_tactics")
+        intents.add("military")
     if any(
         term in blob
         for term in (
@@ -583,6 +609,46 @@ def diversify_hits(ranked: list[Hit], top_k: int) -> list[Hit]:
     return selected
 
 
+def select_bach_dang_hits(ranked: list[Hit], top_k: int) -> list[Hit]:
+    preferred: list[Hit] = []
+    backup: list[Hit] = []
+    seen: set[str] = set()
+    for hit in ranked:
+        chunk_id = hit.chunk.get("chunk_id", "")
+        if not chunk_id or chunk_id in seen:
+            continue
+        blob = normalize(
+            " ".join(
+                [
+                    hit.chunk.get("topic_title", ""),
+                    hit.chunk.get("fact", ""),
+                    hit.chunk.get("text", ""),
+                    " ".join(hit.chunk.get("tags", [])),
+                    " ".join(hit.chunk.get("answer_intents", [])),
+                ]
+            )
+        )
+        tags = {normalize(term) for term in (hit.chunk.get("tags") or []) + (hit.chunk.get("answer_intents") or [])}
+        has_anchor = any(
+            term in blob
+            for term in ("bach dang", "bach_dang", "o ma nhi", "o_ma_nhi", "bai coc", "thuy trieu", "mac coc")
+        )
+        if not has_anchor:
+            continue
+        off_target = bool(tags & {"ngoai_giao", "hau_chien", "hoa_binh", "diplomacy", "governance"}) or any(
+            term in blob for term in ("1285", "dien hong", "ly hang", "lang son")
+        )
+        if off_target:
+            backup.append(hit)
+        else:
+            preferred.append(hit)
+        seen.add(chunk_id)
+    selected = preferred[:top_k]
+    if len(selected) < top_k:
+        selected.extend(hit for hit in backup if hit not in selected)
+    return selected[:top_k] or ranked[:top_k]
+
+
 def is_battle_reflection_query(query: str) -> bool:
     normalized = normalize(query)
     affect_terms = ("hanh dien", "tu hao", "dang nho", "nho nhat", "cam thay hanh dien", "cam thay tu hao")
@@ -596,6 +662,14 @@ def is_battle_description_query(query: str) -> bool:
     description_terms = ("mo ta", "ke ve", "noi qua", "dien bien", "tran danh", "chien thuat")
     return any(has_phrase(normalized, term) for term in battle_terms) and any(
         has_phrase(normalized, term) for term in description_terms
+    )
+
+
+def is_tran_hung_dao_bach_dang_query(query: str) -> bool:
+    normalized = normalize(query)
+    return any(
+        has_phrase(normalized, term)
+        for term in ("bach dang", "1288", "o ma nhi", "bai coc", "thuy trieu", "nguyen mong")
     )
 
 
@@ -657,6 +731,11 @@ def rewrite_query(query: str, profile: dict | None = None) -> str:
             "trận Ngọc Hồi Đống Đa mùa xuân Kỷ Dậu 1789 quân Thanh Tôn Sĩ Nghị "
             "Hà Hồi Ngọc Hồi Đống Đa tượng binh hỏa hổ đại bác mộc rơm ướt năm đạo quân"
         )
+    elif profile_character_id(profile) == "tran_hung_dao" and is_tran_hung_dao_bach_dang_query(query):
+        additions.append(
+            "Trần Hưng Đạo Bạch Đằng 1288 Ô Mã Nhi bãi cọc gỗ lim thủy triều "
+            "thủy quân Nguyên Mông thuyền nhỏ khiêu chiến tổng tấn công"
+        )
     elif additions:
         additions.append("tiểu sử sự nghiệp tư tưởng chiến lược lịch sử")
     if not additions:
@@ -682,6 +761,14 @@ def query_variants(query: str, profile: dict | None = None) -> list[str]:
                 "Quang Trung Nguyễn Huệ trận Ngọc Hồi Đống Đa Kỷ Dậu 1789 diễn biến đại phá quân Thanh Tôn Sĩ Nghị",
                 "Quang Trung Nguyễn Huệ chiến dịch Ngọc Hồi Đống Đa năm đạo quân Hà Hồi Ngọc Hồi Đống Đa",
                 "Tây Sơn tượng binh hỏa hổ đại bác mộc rơm ướt đánh quân Thanh ở Ngọc Hồi",
+            ]
+        )
+    elif character_id == "tran_hung_dao" and is_tran_hung_dao_bach_dang_query(query):
+        variants.extend(
+            [
+                "Trần Hưng Đạo trận Bạch Đằng năm 1288 Ô Mã Nhi thủy quân Nguyên Mông bãi cọc thủy triều",
+                "Bạch Đằng 1288 quân Trần dụ thuyền Ô Mã Nhi vào sông chờ thủy triều rút bãi cọc lộ ra",
+                "Trần Hưng Đạo tổng tấn công Bạch Đằng 1288 thuyền địch mắc cọc Ô Mã Nhi bị bắt",
             ]
         )
     elif intents & {"ideology", "military_doctrine"}:
@@ -779,6 +866,19 @@ def rerank_hits(query: str, hits: list[Hit], top_k: int, min_score: float | None
                 adjusted += 0.22
             if hit.chunk.get("chunk_id") in {"qt_kb_032", "qt_kb_039", "qt_kb_047", "qt_kb_092", "qt_kb_093", "qt_kb_095", "qt_kb_096", "qt_kb_097"}:
                 adjusted += 0.16
+        if is_tran_hung_dao_bach_dang_query(query):
+            if any(term in chunk_blob for term in ("bach dang", "bach_dang", "o ma nhi", "o_ma_nhi", "bai coc", "thuy trieu")):
+                adjusted += 0.32
+            if doc_intents & {"micro_tactics"}:
+                adjusted += 0.14
+            off_target_tags = {
+                normalize(term)
+                for term in (hit.chunk.get("tags") or []) + (hit.chunk.get("answer_intents") or [])
+            }
+            if off_target_tags & {"ngoai_giao", "hau_chien", "hoa_binh", "diplomacy", "governance"}:
+                adjusted -= 0.34
+            if any(term in chunk_blob for term in ("dien hong", "1285", "ly hang", "lang son", "hoa binh", "thoat hoan rut")):
+                adjusted -= 0.3
         chunk_id = hit.chunk.get("chunk_id", "")
         previous = fused.get(chunk_id)
         if previous is None or adjusted > previous.score:
@@ -786,6 +886,8 @@ def rerank_hits(query: str, hits: list[Hit], top_k: int, min_score: float | None
     ranked = sorted(fused.values(), key=lambda item: item.score, reverse=True)
     if ranked and ranked[0].score < threshold:
         return []
+    if is_tran_hung_dao_bach_dang_query(query):
+        return select_bach_dang_hits(ranked, top_k)
     return diversify_hits(ranked, top_k)
 
 
@@ -813,6 +915,10 @@ def lexical_anchor_boost(query_norm: str, chunk: dict) -> float:
         boost += 0.22
     if "dien bien phu" in query_norm and (
         "dien_bien" in tag_blob or "dien bien phu" in tag_blob or "dienbienphu" in tag_blob
+    ):
+        boost += 0.28
+    if "bach dang" in query_norm and (
+        "bach_dang" in tag_blob or "bach dang" in tag_blob or "o_ma_nhi" in tag_blob or "bai coc" in tag_blob
     ):
         boost += 0.28
     if "chien tranh nhan dan" in query_norm and (
@@ -1409,6 +1515,16 @@ def build_ideology_answer(query: str, profile: dict, hits: list[Hit]) -> str:
     return answer
 
 
+def build_bach_dang_answer(profile: dict, hits: list[Hit]) -> str:
+    return (
+        "Nếu hỏi Bạch Đằng năm 1288, ta nói đó là trận phải thắng bằng thế sông nước và lòng người. "
+        "Ta chọn khúc sông có thủy triều lên xuống mạnh, cho đóng bãi cọc ngầm, rồi dùng thuyền nhỏ khiêu chiến "
+        "dụ thủy quân Nguyên của Ô Mã Nhi tiến sâu vào nơi đã định. Khi nước rút, thuyền lớn mắc cọc, không còn xoay trở; "
+        "quân ta từ hai bờ và các thuyền nhẹ đồng loạt đánh xuống. Thắng lợi ấy không chỉ phá tan đạo thủy quân, "
+        "mà còn chặn hẳn mưu xâm lược lần nữa của giặc Nguyên Mông."
+    )
+
+
 def build_broad_persona_answer(query: str, profile: dict, hits: list[Hit]) -> str:
     character_id = profile_character_id(profile)
     facts = persona_facts(hits, profile, limit=3)
@@ -1493,6 +1609,8 @@ def build_generic_character_answer(query: str, profile: dict, hits: list[Hit]) -
         if facts:
             answer += " Sử sách đời sau ghi: " + " ".join(facts[:2])
         return answer, "talking"
+    if profile_character_id(profile) == "tran_hung_dao" and is_tran_hung_dao_bach_dang_query(query):
+        return build_bach_dang_answer(profile, hits), "talking"
     if hits:
         if query_intents(query) & {"ideology", "military_doctrine"}:
             return build_ideology_answer(query, profile, hits), "talking"

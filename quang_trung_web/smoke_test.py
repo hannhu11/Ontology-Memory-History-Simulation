@@ -123,7 +123,9 @@ MULTI_CHARACTER_CASES = {
     "tran_hung_dao": {
         "positive": "Đại Vương kể trận Bạch Đằng năm 1288.",
         "negative": "Đại Vương dùng Facebook để truyền Hịch tướng sĩ thế nào?",
-        "must_contain": ("Bạch Đằng", "Ô Mã Nhi"),
+        "must_contain": ("Bạch Đằng", "Ô Mã Nhi", "bãi cọc", "thủy triều"),
+        "must_contain_all": True,
+        "must_not_contain": ("1285", "ngoại giao", "Hội nghị Diên Hồng"),
     },
     "nguyen_trai": {
         "positive": "Tiên sinh nói về nhân nghĩa trong Bình Ngô đại cáo.",
@@ -295,9 +297,26 @@ def validate_multi_character_runtime() -> None:
                 raise AssertionError(f"{character_id} citation missing source_tier: {citation.get('chunk_id')}")
             if not 0 <= float(citation.get("source_quality_score", -1)) <= 1:
                 raise AssertionError(f"{character_id} citation missing source_quality_score: {citation.get('chunk_id')}")
+            if character_id == "tran_hung_dao":
+                citation_blob = " ".join(
+                    [
+                        citation.get("chunk_id", ""),
+                        citation.get("fact", ""),
+                        " ".join(citation.get("tags", [])),
+                        " ".join(citation.get("answer_intents", [])),
+                    ]
+                ).lower()
+                if any(term in citation_blob for term in ("1285", "ngoại_giao", "hậu_chiến", "hòa_bình")):
+                    raise AssertionError(f"{character_id} Bạch Đằng citation mixed off-target detail: {citation.get('chunk_id')}")
         lowered_answer = positive["answer"].lower()
-        if not any(term.lower() in lowered_answer for term in case["must_contain"]):
+        if case.get("must_contain_all"):
+            if not all(term.lower() in lowered_answer for term in case["must_contain"]):
+                raise AssertionError(f"{character_id} positive answer lacks expected detail: {positive['answer']}")
+        elif not any(term.lower() in lowered_answer for term in case["must_contain"]):
             raise AssertionError(f"{character_id} positive answer lacks expected detail: {positive['answer']}")
+        for forbidden in case.get("must_not_contain", ()):
+            if forbidden.lower() in lowered_answer:
+                raise AssertionError(f"{character_id} positive answer mixed off-target detail {forbidden}: {positive['answer']}")
 
         negative = answer_query(case["negative"], profile, retriever)
         print("=" * 80)
