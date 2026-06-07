@@ -245,6 +245,21 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - selector citation riêng ưu tiên chunk đúng trận, loại/đẩy lùi `ngoại_giao`, `hậu_chiến`, `hòa_bình`, `1285`, `Diên Hồng`, `Lý Hằng`;
   - câu trả lời nhập vai nói trực tiếp về thủy triều, bãi cọc, dụ Ô Mã Nhi và tổng công kích, không ghép fact rời.
 - `smoke_test.py` đã siết case này: câu trả lời phải có đủ `Bạch Đằng`, `Ô Mã Nhi`, `bãi cọc`, `thủy triều` và citation không được lẫn off-target 1285/ngoại giao/hậu chiến.
+
+## Deploy production sau nâng cấp ngày 2026-06-08
+
+- Đã push GitHub các commit:
+  - `93e9b9f` - `Improve simulacra RAG performance`
+  - `9522207` - `Tighten Bach Dang retrieval routing`
+- Production server Oracle: `/home/ubuntu/history-ontology`, service `history-ontology.service`.
+- Đã `git pull --ff-only origin main`, chạy `py_compile`, `validate_dataset.py`, `validate_multi_character.py` và `quang_trung_web/smoke_test.py` trên VPS: pass.
+- Đã restart `history-ontology.service`; service active, Streamlit chạy qua `/home/ubuntu/history-ontology/quang_trung_web/.venv/bin/streamlit run app.py --server.address 172.19.0.1 --server.port 8501`.
+- Acceptance check sau restart:
+  - `http://172.19.0.1:8501` trả `HTTP 200`.
+  - Nginx host `history-simulation-ai.online` trả `HTTP 200`.
+  - `https://history-simulation-ai.online/` trả `HTTP 200`.
+  - `https://pethubvn.store/` vẫn trả `HTTP 200`; không sửa Nginx/PetHub, không mở public port `8501`.
+- Production repo còn thư mục untracked `deploy/`; để nguyên vì không liên quan đến app/history service.
 - Server local đã restart ở `http://127.0.0.1:8501`; browser check xác nhận sidebar có đủ 5 nhân vật, selectbox/profile khớp sau khi clear session, audio status chỉ còn một block theo nhân vật đang chọn.
 - Nếu chat mới tiếp tục nhiệm vụ, đọc file này trước, sau đó kiểm tra `git -C github_dataset_repo log -1 --oneline` để biết commit backup mới nhất.
 
