@@ -243,3 +243,33 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 - User yêu cầu không để lộ provider/model TTS trong giao diện. UI không được hiển thị các chuỗi như `Google TTS`, `vi-VN-Neural2-D`, hoặc block sidebar `Giọng nói / Google TTS đã cấu hình`.
 - `quang_trung_web/app.py` đã đổi nhãn audio player thành `Âm thanh nhập vai` và `Đang đọc lời nhân vật`; đã xóa toàn bộ khối sidebar `Giọng nói`, status cấu hình TTS và caption tự động đọc.
 - Cấu hình kỹ thuật trong `tts_provider.py` vẫn giữ để gọi API, nhưng chỉ nằm ở backend/source code; người dùng cuối không thấy provider/model/voice name trong web.
+
+## Trạng thái production Oracle/Cloudflare ngày 2026-06-07
+
+- Domain production của History Ontology: `https://history-simulation-ai.online/`.
+- VPS Oracle dùng chung với PetHub: `140.245.119.189`, SSH bằng user `ubuntu`. Không ghi private key vào repo/MEMORY.
+- Cloudflare DNS cho `history-simulation-ai.online`: root `A` và `www` đang proxied qua Cloudflare về IP `140.245.119.189`. Không cần DNS record chứa port `8501`.
+- PetHub đang chạy trong Docker, Nginx nằm trong container `pethub-nginx`, không phải Nginx cài trực tiếp trên host. Port public `80/443` đang do Docker proxy vào `pethub-nginx`.
+- Không mở public port `8501` trong OCI. History Streamlit chạy bằng systemd service riêng `history-ontology.service`, bind nội bộ vào Docker bridge `172.19.0.1:8501`.
+- Code production clone tại `/home/ubuntu/history-ontology`, app tại `/home/ubuntu/history-ontology/quang_trung_web`, venv tại `/home/ubuntu/history-ontology/quang_trung_web/.venv`.
+- `.env` production đã copy vào `/home/ubuntu/history-ontology/quang_trung_web/.env`, chmod `600`; tuyệt đối không in/cat/push file này.
+- Nginx History config được nạp vào container tại `/etc/nginx/conf.d/history-simulation-ai.online.conf`, host giữ bản copy tại `/home/ubuntu/history-ontology/deploy/history-simulation-ai.online.conf`.
+- Script khôi phục/reload Nginx đã tạo tại `/home/ubuntu/history-ontology/deploy/apply-history-nginx.sh`.
+- Vì config Nginx History đang nằm trong writable layer của container, nếu sau này PetHub redeploy/recreate `pethub-nginx`, cần copy lại host file vào container:
+  - Cách nhanh: `/home/ubuntu/history-ontology/deploy/apply-history-nginx.sh`
+  - Hoặc chạy thủ công:
+  - `docker cp /home/ubuntu/history-ontology/deploy/history-simulation-ai.online.conf pethub-nginx:/etc/nginx/conf.d/history-simulation-ai.online.conf`
+  - `docker exec pethub-nginx nginx -t`
+  - `docker exec pethub-nginx nginx -s reload`
+- Lệnh vận hành:
+  - Xem app: `systemctl status history-ontology.service`
+  - Log app: `journalctl -u history-ontology.service -n 100 --no-pager`
+  - Restart app: `sudo systemctl restart history-ontology.service`
+  - Test nội bộ app: `curl -I http://172.19.0.1:8501`
+  - Test Nginx host-header: `curl -I -H 'Host: history-simulation-ai.online' http://127.0.0.1`
+- Kiểm tra đã chạy ngày 2026-06-07:
+  - `history-ontology.service` active/running.
+  - `curl -I http://172.19.0.1:8501` trả `HTTP/1.1 200 OK`.
+  - `curl -I -H 'Host: history-simulation-ai.online' http://127.0.0.1` trả `200 OK`, không còn redirect sang PetHub.
+  - `https://history-simulation-ai.online/` mở đúng app `Đối thoại lịch sử`.
+  - `https://pethubvn.store/` vẫn trả `200 OK`, không bị ảnh hưởng.
