@@ -527,3 +527,31 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - web smoke khóa streaming mask, index metadata mismatch rebuild, factual regressions, corrective local rerank cho micro_tactics như ăn Tết trước/mồng 7;
   - `python -m py_compile ...`, `python backend/smoke_test.py`, `python quang_trung_web/smoke_test.py`, `cd frontend && npm run build` đều pass local.
 - Chưa deploy production trong mục này. Nếu deploy: chỉ pull/build/restart `history-ontology-api.service` và `history-ontology-web.service`; không sửa Nginx/PetHub.
+
+## Deploy Real-Time Fused CRAG hoàn tất ngày 2026-06-08
+
+- Commit triển khai chính: `94ccda3` (`Implement real-time fused CRAG`).
+- Commit vá deploy regression: `da5ce8e` (`Fix Dien Bien Phu 1954 rerank`).
+- Lý do có commit vá sau: backend smoke trên VPS phát hiện câu `chien dich dien bien phu vi sao thang` của Võ Nguyên Giáp bị nhiễm chunk `Hà Nội - Điện Biên Phủ trên không`/1972/1975. Đã thêm selector `is_classic_dien_bien_phu_query()` và `select_classic_dien_bien_phu_hits()` để câu Điện Biên Phủ 1954 chỉ lấy chunk 1954/đánh chắc tiến chắc/tập đoàn cứ điểm, loại `trên không`, `B-52`, `1972`, `1975`, `Tây Bắc 1952`, `Biên giới 1950`.
+- Production `/home/ubuntu/history-ontology` đã pull tới `da5ce8e`, chạy:
+  - `python -m py_compile backend/main.py backend/smoke_test.py quang_trung_web/rag_core.py quang_trung_web/llm_provider.py quang_trung_web/smoke_test.py` -> pass;
+  - `python backend/smoke_test.py` -> pass;
+  - `python quang_trung_web/smoke_test.py` -> pass;
+  - `cd frontend && npm run build` -> pass;
+  - restart `history-ontology-api.service` và `history-ontology-web.service`.
+- Production health sau restart:
+  - `history-ontology-api.service`: active;
+  - `history-ontology-web.service`: active;
+  - `http://127.0.0.1:8601/api/health`: `ok=true`, đủ 5 nhân vật;
+  - `http://172.19.0.1:8501`: HTTP 200;
+  - `https://history-simulation-ai.online/`: HTTP/2 200;
+  - `https://pethubvn.store/`: HTTP/2 200, không bị ảnh hưởng.
+- Production API acceptance sau deploy:
+  - `ho_chi_minh` + `bac sinh nam bao nhieu` -> `mode=factual`, trả `19/5/1890`, không trả `5/6/1911`;
+  - `quang_trung` + `ong voi Nguyen Hue la gi cua nhau` -> `mode=factual`, trả Nguyễn Huệ chính là ta, Quang Trung là niên hiệu, không phải hai người/anh em;
+  - `vo_nguyen_giap` + `chien dich dien bien phu vi sao thang` -> `mode=retrieval`, citations `vng_kb_054`, `vng_kb_065`, `vng_kb_066`, `vng_kb_068`, trả đúng Điện Biên Phủ 1954 và `đánh chắc tiến chắc`, không còn `trên không`.
+- Trạng thái Gemini production tại thời điểm deploy:
+  - `.env` có `GEMINI_API_KEY`, nhưng không đặt `GEMINI_MODEL_NAME`/`GEMINI_ROUTER_MODEL_NAME`, nên code dùng default `gemini-3.5-flash` cho router và generator;
+  - probe trực tiếp Google Generative Language API trả HTTP `403 PERMISSION_DENIED` với thông điệp project bị denied access;
+  - vì vậy final metadata hiện báo `llm_status=auth_error`, `route_source=deterministic`, `fallback_used=true` cho các câu acceptance. Đây là lỗi quyền/key/project phía Google, không phải lỗi RAG/router. Code đã degrade đúng: không crash, vẫn stream/trả local factual/retrieval answer chất lượng.
+- Lưu ý vận hành tiếp theo: muốn kích hoạt đầy đủ 2 Gemini calls/request, cần cấp lại project/key hợp lệ hoặc đặt `GEMINI_MODEL_NAME`/`GEMINI_ROUTER_MODEL_NAME` bằng model mà project được phép gọi; sau đó restart hai service app. Không dùng key PetHub cho History nếu chưa tách quyền và chủ đích vận hành rõ ràng.
