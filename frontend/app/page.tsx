@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Bot, Pause, Play, RotateCcw, UserRound } from "lucide-react";
+import { CharacterViewer } from "../components/CharacterViewer";
 import { citationKey, fetchCharacters, streamChat, synthesizeAudio } from "../lib/api";
 import { activeCharacter, summarizeCitations, useHistoryStore } from "../lib/store";
 import type { ChatMessage, Citation } from "../types";
@@ -47,7 +48,15 @@ function CitationList({ citations }: { citations?: Citation[] }) {
   );
 }
 
-function AudioPlayer({ audioBase64 }: { audioBase64: string }) {
+function AudioPlayer({
+  audioBase64,
+  onAudioPlay,
+  onAudioStop,
+}: {
+  audioBase64: string;
+  onAudioPlay?: () => void;
+  onAudioStop?: () => void;
+}) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -73,8 +82,15 @@ function AudioPlayer({ audioBase64 }: { audioBase64: string }) {
         src={`data:audio/mpeg;base64,${audioBase64}`}
         preload="metadata"
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onPause={() => {
+          setPlaying(false);
+          onAudioStop?.();
+        }}
+        onEnded={() => {
+          setPlaying(false);
+          onAudioStop?.();
+        }}
+        onPlaying={onAudioPlay}
         onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
         onTimeUpdate={(event) => setProgress(event.currentTarget.currentTime || 0)}
         autoPlay
@@ -106,7 +122,15 @@ function AudioPlayer({ audioBase64 }: { audioBase64: string }) {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  onAudioPlay,
+  onAudioStop,
+}: {
+  message: ChatMessage;
+  onAudioPlay?: () => void;
+  onAudioStop?: () => void;
+}) {
   const isUser = message.role === "user";
   return (
     <div className={`flex gap-3 ${isUser ? "items-start" : "items-start"}`}>
@@ -132,7 +156,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             Đang tạo âm thanh nhập vai...
           </div>
         ) : null}
-        {message.audioReady && message.audioBase64 ? <AudioPlayer audioBase64={message.audioBase64} /> : null}
+        {message.audioReady && message.audioBase64 ? (
+          <AudioPlayer audioBase64={message.audioBase64} onAudioPlay={onAudioPlay} onAudioStop={onAudioStop} />
+        ) : null}
         {!isUser ? <CitationList citations={message.citations} /> : null}
       </div>
     </div>
@@ -147,6 +173,7 @@ export default function Home() {
     status,
     statusText,
     isSending,
+    visual,
     setCharacters,
     selectCharacter,
     addMessage,
@@ -154,6 +181,10 @@ export default function Home() {
     appendAssistantText,
     setStatus,
     setSending,
+    setVisual,
+    completeVisualMotion,
+    beginSpeaking,
+    endSpeaking,
     clearChat,
   } = useHistoryStore();
   const [input, setInput] = useState("");
@@ -223,6 +254,7 @@ export default function Home() {
           onStart: (data) => {
             if (useHistoryStore.getState().selectedCharacterId === data.character_id) {
               setStatus("thinking", data.status);
+              if (data.visual) setVisual(data.visual);
             }
           },
           onRetrieval: (data) => {
@@ -233,6 +265,11 @@ export default function Home() {
               state: data.state,
             });
             setStatus("answering", summarizeCitations(data.citations));
+          },
+          onStreamStart: (data) => {
+            if (useHistoryStore.getState().selectedCharacterId === characterId) {
+              setVisual(data.visual);
+            }
           },
           onToken: (text) => {
             if (useHistoryStore.getState().selectedCharacterId === characterId) {
@@ -249,6 +286,10 @@ export default function Home() {
               audioPending: true,
             });
             setStatus("audio", "Đang tạo âm thanh nhập vai");
+            const currentVisual = useHistoryStore.getState().visual;
+            if (data.visual && currentVisual.motion !== "attack") {
+              setVisual(data.visual);
+            }
             setSending(false);
             const audio = await synthesizeAudio(characterId, data.answer);
             if (useHistoryStore.getState().selectedCharacterId !== characterId) return;
@@ -334,7 +375,12 @@ export default function Home() {
           ) : messages.length ? (
             <div className="space-y-8">
               {messages.map((message) => (
-                <MessageBubble key={message.id} message={message} />
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  onAudioPlay={message.role === "assistant" ? beginSpeaking : undefined}
+                  onAudioStop={message.role === "assistant" ? endSpeaking : undefined}
+                />
               ))}
             </div>
           ) : (
@@ -373,26 +419,23 @@ export default function Home() {
         </form>
       </section>
 
-      <aside className="right-rail flex flex-col gap-4">
-        <div className="panel overflow-hidden">
-          {selected?.portrait_url ? (
-            <img src={selected.portrait_url} alt={selected.display_name} className="h-auto w-full" />
-          ) : (
-            <div className="flex aspect-[4/3] items-center justify-center bg-[#1d1915] text-center">
-              <div>
-                <div className="text-xl font-black uppercase text-[#e5bd3b]">{selected?.display_name || "Nhân vật"}</div>
-                <div className="mt-2 text-sm font-bold uppercase tracking-[.12em] text-[#e5bd3b]">Simulacra</div>
-              </div>
+      <aside className="right-rail">
+        <div className="sticky top-8 flex h-[calc(100vh-4rem)] flex-col gap-4 overflow-y-auto pr-1">
+          <div className="panel overflow-hidden">
+            <CharacterViewer character={selected} visual={visual} onMotionComplete={completeVisualMotion} />
+          </div>
+          <div className="panel p-5">
+            <h2 className="text-lg font-bold text-[#e5bd3b]">Nhân vật đang chọn</h2>
+            <p className="mt-3 text-sm leading-7 text-[rgba(246,240,228,.84)]">
+              Tên hiển thị: {selected?.display_name}
+            </p>
+            <p className="text-sm leading-7 text-[rgba(246,240,228,.84)]">
+              Triều đại: {selected?.era || "đang nạp"}
+            </p>
+            <div className="mt-4 rounded-md border border-[rgba(37,183,166,.28)] bg-[rgba(37,183,166,.07)] px-3 py-2 text-sm text-[rgba(246,240,228,.84)]">
+              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#25b7a6]" />
+              {status === "idle" ? "Sẵn sàng" : statusText}
             </div>
-          )}
-        </div>
-        <div className="panel p-5">
-          <h2 className="text-lg font-bold text-[#e5bd3b]">Nhân vật đang chọn</h2>
-          <p className="mt-3 text-sm leading-7 text-[rgba(246,240,228,.84)]">Tên hiển thị: {selected?.display_name}</p>
-          <p className="text-sm leading-7 text-[rgba(246,240,228,.84)]">Triều đại: {selected?.era || "đang nạp"}</p>
-          <div className="mt-4 rounded-md border border-[rgba(37,183,166,.28)] bg-[rgba(37,183,166,.07)] px-3 py-2 text-sm text-[rgba(246,240,228,.84)]">
-            <span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#25b7a6]" />
-            {status === "idle" ? "Sẵn sàng" : statusText}
           </div>
         </div>
       </aside>

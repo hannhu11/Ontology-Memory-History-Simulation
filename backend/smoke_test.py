@@ -39,8 +39,12 @@ def final_answer_for(client: TestClient, character_id: str, message: str) -> dic
     names = [name for name, _ in events]
     assert names[0] == "start"
     assert "retrieval" in names
+    assert "stream_start" in names
     assert "final" in names
-    return [data for name, data in events if name == "final"][-1]
+    final = [data for name, data in events if name == "final"][-1]
+    assert "visual" in final
+    assert final["visual"]["emotion"] in {"idle", "thinking", "talking", "happy", "angry", "sad", "confused"}
+    return final
 
 
 def main() -> None:
@@ -64,6 +68,10 @@ def main() -> None:
         quang_trung = final_answer_for(client, "quang_trung", "ông với Nguyễn Huệ là anh em à")
         assert "tên của ta" in quang_trung["answer"]
         assert "không phải" in quang_trung["answer"]
+
+        battle = final_answer_for(client, "quang_trung", "vua kể trận đánh khiến vua hãnh diện nhất đi")
+        assert battle["visual"]["motion"] == "attack"
+        assert battle["visual"]["emotion"] in {"happy", "angry"}
 
         bac = final_answer_for(client, "ho_chi_minh", "BÁC CÓ VỢ KHÔNG, cho cháu biết đi")
         assert "Chuyện riêng tư" in bac["answer"]

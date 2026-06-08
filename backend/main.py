@@ -40,6 +40,7 @@ from rag_core import (  # noqa: E402
     is_private_life_query,
     load_chunks,
     load_profile,
+    query_intents,
 )
 from tts_provider import synthesize  # noqa: E402
 
@@ -76,6 +77,160 @@ def public_citation(chunk: dict) -> dict:
         "answer_intents": chunk.get("answer_intents", []),
         "tags": chunk.get("tags", []),
         "fact": compact_text(chunk.get("fact") or chunk.get("text", ""), max_words=80),
+    }
+
+
+def text_blob(*values: Any) -> str:
+    return " ".join(str(value or "") for value in values).lower()
+
+
+def visual_payload(
+    query: str,
+    answer: str,
+    profile: dict,
+    result: dict | None = None,
+    citations: Iterable[dict] | None = None,
+    phase: str = "answering",
+) -> dict[str, Any]:
+    result = result or {}
+    citations = list(citations or [])
+    metadata = profile.get("character_metadata", {})
+    character_id = profile.get("character_id") or metadata.get("character_id", "")
+    death_year = metadata.get("death_year")
+    mode = result.get("mode", "")
+    state = result.get("state", "talking")
+    citation_intents: set[str] = set()
+    citation_tags: set[str] = set()
+    for citation in citations:
+        citation_intents.update(str(item).lower() for item in citation.get("answer_intents", []) or [])
+        citation_tags.update(str(item).lower() for item in citation.get("tags", []) or [])
+
+    detected = {item.lower() for item in query_intents(query)}
+    combined = text_blob(query, answer, mode, state, " ".join(detected), " ".join(citation_intents), " ".join(citation_tags))
+
+    intent = "historical_fact"
+    emotion = "idle"
+    motion = "none"
+    action = "none"
+    asset = "idle.png"
+
+    if phase == "thinking":
+        return {
+            "phase": "thinking",
+            "intent": "retrieval",
+            "emotion": "thinking",
+            "baseEmotion": "thinking",
+            "motion": "thinking" if character_id == "quang_trung" else "none",
+            "asset": "thinking.png",
+            "action": "loop" if character_id == "quang_trung" else "none",
+        }
+
+    is_pre_1954_character = isinstance(death_year, int) and death_year < 1954
+    if mode == "guardrail" or state == "confused" or (
+        is_pre_1954_character and "điện biên phủ" in combined
+    ) or any(
+        marker in combined
+        for marker in [
+            "facebook",
+            "internet",
+            "thế chiến",
+            "world war",
+            "ww2",
+            "ww1",
+            "sau khi ta đã mất",
+            "sau khi bác đã đi xa",
+        ]
+    ):
+        intent = "anachronism"
+        emotion = "confused"
+        asset = "confused.png"
+    elif any(
+        marker in combined
+        for marker in [
+            "battle_reflection",
+            "battle_detail",
+            "micro_tactics",
+            "military",
+            "trận",
+            "đánh",
+            "giặc",
+            "quân thanh",
+            "quân xiêm",
+            "ngọc hồi",
+            "đống đa",
+            "rạch gầm",
+            "xoài mút",
+            "bạch đằng",
+            "điện biên phủ",
+            "xung trận",
+            "ngoại xâm",
+            "đại phá",
+            "đập tan",
+        ]
+    ):
+        intent = "battle_detail"
+        if any(
+            marker in combined
+            for marker in [
+                "giặc",
+                "quân thanh",
+                "quân xiêm",
+                "ngoại xâm",
+                "xâm lược",
+                "xâm lăng",
+                "phản bội",
+                "hồ đồ",
+                "đập tan",
+            ]
+        ):
+            emotion = "angry"
+            asset = "angry_2.png"
+        elif any(marker in combined for marker in ["chiến thắng", "đại thắng", "hãnh diện", "tự hào", "vinh quang"]):
+            emotion = "happy"
+            asset = "happy.png"
+        else:
+            emotion = "angry"
+            asset = "angry.png"
+        if character_id == "quang_trung":
+            motion = "attack"
+            action = "play_once"
+    elif any(
+        marker in combined
+        for marker in [
+            "dân lầm than",
+            "mất mát",
+            "hy sinh",
+            "tang tóc",
+            "đau xót",
+            "ruộng hoang",
+            "loạn lạc",
+            "dang dở",
+        ]
+    ):
+        intent = "suffering"
+        emotion = "sad"
+        asset = "sad.png"
+    elif any(marker in combined for marker in ["tư tưởng", "nhân nghĩa", "khoan thư", "độc lập", "tự do", "đại đoàn kết"]):
+        intent = "ideology"
+        emotion = "thinking"
+        asset = "thinking.png"
+    elif any(marker in combined for marker in ["chào", "bạn là ai", "giới thiệu", "tên của ta", "ta là"]):
+        intent = "identity"
+        emotion = "idle"
+        asset = "idle.png"
+    elif any(marker in combined for marker in ["cười", "vui", "mừng", "khải hoàn", "vinh"]):
+        intent = "smalltalk"
+        emotion = "happy"
+        asset = "happy.png"
+
+    return {
+        "phase": phase,
+        "intent": intent,
+        "emotion": emotion,
+        "baseEmotion": emotion,
+        "motion": motion,
+        "asset": asset,
+        "action": action,
     }
 
 
@@ -195,7 +350,15 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
         character_id = request.character_id if request.character_id in CHARACTER_REGISTRY else DEFAULT_CHARACTER_ID
         profile, retriever = runtime.get(character_id)
         query = request.message.strip()
-        yield sse_event("start", {"character_id": character_id, "status": "Đang gợi ký ức"})
+        thinking_visual = visual_payload(query, "", profile, phase="thinking")
+        yield sse_event(
+            "start",
+            {
+                "character_id": character_id,
+                "status": "Đang gợi ký ức",
+                "visual": thinking_visual,
+            },
+        )
 
         result = answer_query(query, profile, retriever, generator=None)
         citations = [public_citation(chunk) for chunk in result.get("citations", [])]
@@ -212,6 +375,15 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
         final_answer = fallback_answer
         mode = result.get("mode", "retrieval")
         emitted_stream = False
+        early_visual = visual_payload(query, fallback_answer, profile, result, citations, phase="answering")
+        yield sse_event(
+            "stream_start",
+            {
+                "intent": early_visual["intent"],
+                "emotion": early_visual["emotion"],
+                "visual": early_visual,
+            },
+        )
 
         if should_stream_with_gemini(query, profile, result):
             collected: list[str] = []
@@ -239,6 +411,7 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 "mode": mode,
                 "state": result.get("state", "talking"),
                 "citations": citations,
+                "visual": visual_payload(query, final_answer, profile, {**result, "mode": mode}, citations, phase="answering"),
             },
         )
     except Exception as exc:

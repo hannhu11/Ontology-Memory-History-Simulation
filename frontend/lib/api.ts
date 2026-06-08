@@ -11,6 +11,7 @@ export async function fetchCharacters(): Promise<{ characters: Character[]; defa
 type StreamHandlers = {
   onStart?: (data: Extract<StreamEvent, { event: "start" }>["data"]) => void;
   onRetrieval?: (data: Extract<StreamEvent, { event: "retrieval" }>["data"]) => void;
+  onStreamStart?: (data: Extract<StreamEvent, { event: "stream_start" }>["data"]) => void;
   onToken?: (text: string) => void;
   onFinal?: (data: Extract<StreamEvent, { event: "final" }>["data"]) => void;
   onError?: (message: string) => void;
@@ -25,6 +26,7 @@ function dispatchEventBlock(block: string, handlers: StreamHandlers) {
   const data = JSON.parse(rawData);
   if (event === "start") handlers.onStart?.(data);
   if (event === "retrieval") handlers.onRetrieval?.(data);
+  if (event === "stream_start") handlers.onStreamStart?.(data);
   if (event === "token") handlers.onToken?.(data.text || "");
   if (event === "final") handlers.onFinal?.(data);
   if (event === "error") handlers.onError?.(data.message || "Có lỗi khi tạo câu trả lời.");

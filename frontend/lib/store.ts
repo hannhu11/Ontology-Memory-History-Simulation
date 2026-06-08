@@ -1,5 +1,13 @@
 import { create } from "zustand";
-import type { Character, ChatMessage, Citation } from "../types";
+import type { Character, CharacterVisual, ChatMessage, Citation } from "../types";
+
+export const DEFAULT_VISUAL: CharacterVisual = {
+  phase: "idle",
+  emotion: "idle",
+  baseEmotion: "idle",
+  motion: "none",
+  action: "none",
+};
 
 type HistoryState = {
   characters: Character[];
@@ -8,6 +16,7 @@ type HistoryState = {
   status: "idle" | "thinking" | "answering" | "audio" | "error";
   statusText: string;
   isSending: boolean;
+  visual: CharacterVisual;
   setCharacters: (characters: Character[], defaultId: string) => void;
   selectCharacter: (characterId: string) => void;
   addMessage: (message: ChatMessage) => void;
@@ -15,6 +24,10 @@ type HistoryState = {
   appendAssistantText: (id: string, text: string) => void;
   setStatus: (status: HistoryState["status"], statusText: string) => void;
   setSending: (value: boolean) => void;
+  setVisual: (visual: CharacterVisual) => void;
+  completeVisualMotion: () => void;
+  beginSpeaking: () => void;
+  endSpeaking: () => void;
   clearChat: () => void;
 };
 
@@ -25,6 +38,7 @@ export const useHistoryStore = create<HistoryState>((set) => ({
   status: "idle",
   statusText: "Sẵn sàng đối thoại",
   isSending: false,
+  visual: DEFAULT_VISUAL,
   setCharacters: (characters, defaultId) =>
     set({
       characters,
@@ -32,6 +46,7 @@ export const useHistoryStore = create<HistoryState>((set) => ({
       messages: [],
       status: "idle",
       statusText: "Sẵn sàng đối thoại",
+      visual: DEFAULT_VISUAL,
     }),
   selectCharacter: (characterId) =>
     set({
@@ -40,6 +55,7 @@ export const useHistoryStore = create<HistoryState>((set) => ({
       status: "idle",
       statusText: "Đã đổi nhân vật",
       isSending: false,
+      visual: DEFAULT_VISUAL,
     }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   updateAssistant: (id, patch) =>
@@ -51,10 +67,56 @@ export const useHistoryStore = create<HistoryState>((set) => ({
       messages: state.messages.map((message) =>
         message.id === id ? { ...message, content: `${message.content}${text}` } : message,
       ),
-    })),
+  })),
   setStatus: (status, statusText) => set({ status, statusText }),
   setSending: (value) => set({ isSending: value }),
-  clearChat: () => set({ messages: [], status: "idle", statusText: "Đã xóa hội thoại", isSending: false }),
+  setVisual: (visual) =>
+    set((state) => ({
+      visual: {
+        ...visual,
+        baseEmotion:
+          visual.baseEmotion ||
+          (visual.emotion === "talking" ? state.visual.baseEmotion || "idle" : visual.emotion),
+      },
+    })),
+  completeVisualMotion: () =>
+    set((state) => ({
+      visual: {
+        ...state.visual,
+        motion: "none",
+        action: "none",
+      },
+    })),
+  beginSpeaking: () =>
+    set((state) => ({
+      visual: {
+        ...state.visual,
+        phase: "speaking",
+        emotion: "talking",
+        baseEmotion:
+          state.visual.emotion === "talking" ? state.visual.baseEmotion || "idle" : state.visual.emotion,
+        motion: "none",
+        action: "none",
+      },
+    })),
+  endSpeaking: () =>
+    set((state) => ({
+      visual: {
+        ...state.visual,
+        phase: "idle",
+        emotion: state.visual.baseEmotion || "idle",
+        motion: "none",
+        action: "none",
+      },
+    })),
+  clearChat: () =>
+    set({
+      messages: [],
+      status: "idle",
+      statusText: "Đã xóa hội thoại",
+      isSending: false,
+      visual: DEFAULT_VISUAL,
+    }),
 }));
 
 export function activeCharacter(characters: Character[], selectedCharacterId: string): Character | undefined {

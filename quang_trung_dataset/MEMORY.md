@@ -404,3 +404,32 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - FastAPI startup lần đầu khoảng 15 giây vì preload embedding/RAG cho 5 nhân vật; runtime sau warm nhanh.
   - Log API có cảnh báo HF Hub unauthenticated; không ảnh hưởng chạy hiện tại nhưng có thể đặt `HF_TOKEN` sau nếu muốn tải model nhanh/ổn định hơn.
   - `npm ci` báo 2 moderate vulnerabilities; chưa chạy `npm audit fix --force` để tránh phá dependency trước production.
+
+## Nâng cấp asset state machine Quang Trung ngày 2026-06-08
+
+- User cung cấp bộ asset Quang Trung mới trong `C:\Users\ADMIN\Downloads\Research MLN111\Asset Quang Trung` và yêu cầu AI tự phán đoán asset theo câu hỏi/câu trả lời, không đổi máy móc.
+- Đã copy bộ asset vào runtime repo tại `quang_trung_web/assets/quang_trung/`:
+  - portrait tĩnh 1254x1254: `idle.png`, `talking.png`, `thinking.png`, `confused.png`, `happy.png`, `angry.png`, `angry_2.png`, `sad.png`;
+  - sprite sheet 5x5: `Quang Trung-hero_thinking.png`, `Quang Trung-attack.png` (file nguồn hiện là 1280x1280, frontend scale vào khung vuông ổn định).
+- `backend/main.py` đã thêm visual classifier nhẹ và SSE contract mới:
+  - `start` gửi `visual.phase=thinking`, `motion=thinking` để frontend chạy sprite suy nghĩ khi đang gợi ký ức;
+  - `stream_start` gửi `intent/emotion/visual` sau retrieval, trước token;
+  - `final` gửi lại `visual` theo câu trả lời cuối.
+- Logic visual hiện ưu tiên:
+  - câu chiến trận/quân Thanh/quân Xiêm/ngoại xâm/Ngọc Hồi/Đống Đa/Rạch Gầm -> `intent=battle_detail`, motion `attack` cho Quang Trung, emotion `angry` hoặc `happy`;
+  - câu sai thời đại/guardrail -> `confused`;
+  - dân lầm than/mất mát/loạn lạc -> `sad`;
+  - tư tưởng/nhân nghĩa/độc lập -> `thinking`;
+  - smalltalk/identity -> `idle` hoặc `happy`.
+- `frontend/components/CharacterViewer.tsx` mới xử lý:
+  - render portrait tĩnh theo `visual.emotion`;
+  - render sprite sheet 5 cột x 5 hàng bằng background-position, `thinking` loop và `attack` play once;
+  - khi audio phát, avatar luân phiên `talking.png` với emotion nền để tạo cảm giác khẩu hình.
+- `frontend/lib/store.ts`, `frontend/types.ts`, `frontend/lib/api.ts`, `frontend/app/page.tsx` đã thêm `CharacterVisual`, `setVisual`, `completeVisualMotion`, `beginSpeaking/endSpeaking` và handler `stream_start`.
+- Đã sửa lỗi asset bên phải không đi cùng cuộc trò chuyện: right rail trong Next.js hiện bọc bằng sticky container `sticky top-8 h-[calc(100vh-4rem)] overflow-y-auto`; kiểm tra DOM local cho thấy top giữ 32px trước/sau khi cuộn.
+- Kiểm thử đã chạy:
+  - `python -m py_compile backend\main.py backend\smoke_test.py` -> pass;
+  - `python backend\smoke_test.py` -> pass, có regression Quang Trung battle phải có visual `motion=attack`;
+  - `cd frontend; npm run build` -> pass;
+  - Playwright local `127.0.0.1:8502`: ảnh `/assets/quang_trung/idle.png` load xong, right rail sticky, câu `vua kể trận đánh khiến vua hãnh diện nhất đi` chuyển visual về `angry_2.png` sau attack.
+- Khi deploy production: cần `git pull`, build lại frontend, restart cả `history-ontology-api.service` và `history-ontology-web.service` vì thay cả backend SSE contract lẫn frontend runtime. Không cần sửa Nginx/PetHub và không mở public port mới.

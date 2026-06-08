@@ -57,6 +57,7 @@ Biến cần thiết: `GEMINI_API_KEY`, `GOOGLE_TTS_API_KEY`, `GOOGLE_TTS_TIMEOU
 - Next.js render khung nhập ngay, quản lý chọn nhân vật bằng Zustand và reset chat/citation/audio trong một transaction khi đổi `character_id`.
 - FastAPI expose `GET /api/characters`, `POST /api/chat/stream`, `POST /api/tts`, `GET /api/health`.
 - `POST /api/chat/stream` trả SSE theo thứ tự `start -> retrieval -> token* -> final`; chữ hiện trước, audio gọi sau bằng `/api/tts`.
+- SSE hiện có thêm `stream_start` và `visual` payload để frontend điều khiển asset nhập vai theo câu hỏi/câu trả lời: `thinking` khi đang gợi ký ức, `attack` cho câu chiến trận/xung trận, và portrait cảm xúc `idle/talking/happy/angry/sad/confused`.
 - `character_registry.py` là nguồn cấu hình duy nhất cho dataset path, asset path và edge-case buttons.
 - `rag_core.py` nạp profile/chunks theo `character_id`, tạo index riêng `.rag_index/<character_id>` và dùng guardrail theo `death_year`.
 - Quang Trung có query rewriting cho `vua`, `ngài`, `ông`, `ta`; câu “trận hãnh diện/đáng nhớ” được route về Ngọc Hồi - Đống Đa và Rạch Gầm - Xoài Mút.
@@ -65,6 +66,7 @@ Biến cần thiết: `GEMINI_API_KEY`, `GOOGLE_TTS_API_KEY`, `GOOGLE_TTS_TIMEOU
 - Fallback nội bộ bảo toàn Simulacra: nhân vật không nói như bot đọc dataset; UI citation là phần học thuật riêng.
 - Câu sau năm mất bị xử lý theo vai. Riêng Hồ Chí Minh với các câu di sản sau 1969 như 1975 trả theo dạng “sau khi Bác đã đi xa, sử sách đời sau ghi...”.
 - TTS chạy sau `final`, không ghi MP3 ra ổ đĩa và không lộ model/provider trên giao diện.
+- Quang Trung dùng bộ asset 1254x1254 trong `quang_trung_web/assets/quang_trung/` và 2 sprite sheet `Quang Trung-hero_thinking.png`, `Quang Trung-attack.png`. Frontend render trong `CharacterViewer`, không scale ảnh làm vỡ layout; right rail dùng sticky container để asset đi cùng khi người dùng cuộn hội thoại.
 
 ## Voice Matrix
 
@@ -100,7 +102,7 @@ npm install
 npm run build
 ```
 
-Smoke test kiểm tra đủ 5 nhân vật, positive/negative cases, Quang Trung battle reflection, Võ Nguyên Giáp Điện Biên Phủ, HCM legacy-afterlife, persona không tự gọi tên mình, citation source-tier và TTS SSML.
+Smoke test kiểm tra đủ 5 nhân vật, positive/negative cases, Quang Trung battle reflection, visual payload cho asset state machine, Võ Nguyên Giáp Điện Biên Phủ, HCM legacy-afterlife, persona không tự gọi tên mình, citation source-tier và TTS SSML.
 
 ## Production
 

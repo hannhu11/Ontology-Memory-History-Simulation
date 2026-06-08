@@ -7,6 +7,20 @@ export type Character = {
   portrait_url: string | null;
 };
 
+export type VisualEmotion = "idle" | "thinking" | "talking" | "happy" | "angry" | "sad" | "confused";
+
+export type VisualMotion = "none" | "thinking" | "attack";
+
+export type CharacterVisual = {
+  phase: "idle" | "thinking" | "answering" | "speaking";
+  intent?: string;
+  emotion: VisualEmotion;
+  baseEmotion?: Exclude<VisualEmotion, "talking">;
+  motion: VisualMotion;
+  asset?: string;
+  action?: "none" | "loop" | "play_once";
+};
+
 export type Citation = {
   chunk_id: string;
   source_title: string;
@@ -33,8 +47,12 @@ export type ChatMessage = {
 };
 
 export type StreamEvent =
-  | { event: "start"; data: { character_id: string; status: string } }
+  | { event: "start"; data: { character_id: string; status: string; visual?: CharacterVisual } }
   | { event: "retrieval"; data: { mode: string; state: string; citations: Citation[] } }
+  | { event: "stream_start"; data: { intent: string; emotion: VisualEmotion; visual: CharacterVisual } }
   | { event: "token"; data: { text: string } }
-  | { event: "final"; data: { answer: string; mode: string; state: string; citations: Citation[] } }
+  | {
+      event: "final";
+      data: { answer: string; mode: string; state: string; citations: Citation[]; visual?: CharacterVisual };
+    }
   | { event: "error"; data: { message: string; detail?: string } };
