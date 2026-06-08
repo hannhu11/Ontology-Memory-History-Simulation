@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from character_registry import CHARACTER_REGISTRY
+import llm_provider
 from llm_provider import stream_sanitized_chunks
 from rag_core import (
     DEFAULT_DATASET_DIR,
@@ -212,6 +213,65 @@ def validate_streaming_mask() -> None:
         raise AssertionError(f"Streaming mask leaked forbidden text: {masked}")
     if "tôi" not in masked.lower():
         raise AssertionError(f"Streaming mask should convert self-name to first person: {masked}")
+
+
+def validate_vertex_provider_mocks() -> None:
+    old_env = {
+        key: os.environ.get(key)
+        for key in ("LLM_PROVIDER", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GEMINI_MODEL_NAME", "GEMINI_ROUTER_MODEL_NAME")
+    }
+    old_generate = llm_provider._vertex_generate_content
+    old_stream = llm_provider._vertex_generate_content_stream
+    profile = load_profile("vo_nguyen_giap")
+    try:
+        os.environ["LLM_PROVIDER"] = "vertex"
+        os.environ["GOOGLE_CLOUD_PROJECT"] = "project-8fbd66f4-2cd0-4a03-a508"
+        os.environ["GOOGLE_CLOUD_LOCATION"] = "us-central1"
+        os.environ["GEMINI_MODEL_NAME"] = "gemini-2.5-flash"
+        os.environ["GEMINI_ROUTER_MODEL_NAME"] = "gemini-2.5-flash"
+
+        def fake_generate(*args, **kwargs):
+            return json.dumps(
+                {
+                    "intent": "history_battle",
+                    "needs_rag": True,
+                    "optimized_search_query": "Chiến dịch Điện Biên Phủ đánh chắc tiến chắc",
+                    "confidence": 0.91,
+                },
+                ensure_ascii=False,
+            )
+
+        llm_provider._vertex_generate_content = fake_generate
+        route = llm_provider.route_query_json("Vì sao thắng Điện Biên Phủ?", profile)
+        if not route["ok"] or route["llm_status"] != "ok":
+            raise AssertionError(f"Vertex router mock should succeed: {route}")
+        if route["route"]["source"] != "llm" or route["route"]["intent"] != "history_battle":
+            raise AssertionError(f"Vertex router route shape invalid: {route}")
+
+        def fake_stream(*args, **kwargs):
+            yield "Võ Nguyên Giáp nói rằng dataset "
+            yield "này phải bị lọc trước khi stream."
+
+        llm_provider._vertex_generate_content_stream = fake_stream
+        streamed = "".join(llm_provider.stream_fused_generation("test", profile, [], route=route["route"]))
+        if "Võ Nguyên Giáp" in streamed or "dataset" in streamed:
+            raise AssertionError(f"Vertex stream should be sanitized: {streamed}")
+        if "tôi" not in streamed.lower():
+            raise AssertionError(f"Vertex stream should retain first-person persona: {streamed}")
+
+        for status_code, expected in ((429, "quota_exhausted"), (403, "auth_error"), (404, "invalid_model")):
+            exc = type("FakeVertexError", (Exception,), {"status_code": status_code})()
+            actual = llm_provider._error_kind_from_exception(exc)
+            if actual != expected:
+                raise AssertionError(f"Vertex error map {status_code}: expected {expected}, got {actual}")
+    finally:
+        llm_provider._vertex_generate_content = old_generate
+        llm_provider._vertex_generate_content_stream = old_stream
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def validate_index_metadata_rebuild_guard() -> None:
@@ -443,6 +503,7 @@ def validate_factual_regressions() -> None:
 def main() -> int:
     validate_tts_provider_contract()
     validate_streaming_mask()
+    validate_vertex_provider_mocks()
     validate_index_metadata_rebuild_guard()
     if set(CHARACTER_REGISTRY) != set(VOICE_PROFILES):
         raise AssertionError("Character registry and voice profiles should contain the same IDs")

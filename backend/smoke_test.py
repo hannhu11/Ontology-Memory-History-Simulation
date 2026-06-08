@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["GOOGLE_TTS_API_KEY"] = ""
+os.environ["LLM_PROVIDER"] = "gemini_api"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

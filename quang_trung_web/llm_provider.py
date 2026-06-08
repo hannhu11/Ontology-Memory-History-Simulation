@@ -6,8 +6,9 @@ import urllib.parse
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -20,10 +21,12 @@ except ImportError:
     pass
 
 
-MODEL_NAME = "gemini-3.5-flash"
+MODEL_NAME = "gemini-2.5-flash"
 DEFAULT_TIMEOUT_SECONDS = 18.0
 MAX_OUTPUT_TOKENS = 1400
 ROUTER_MAX_OUTPUT_TOKENS = 240
+DEFAULT_LLM_PROVIDER = "gemini_api"
+DEFAULT_VERTEX_LOCATION = "us-central1"
 
 FORBIDDEN_CHARACTER_TERMS = (
     "nguồn",
@@ -61,10 +64,45 @@ def _error_kind_from_status(status_code: int, body: str = "") -> str:
     return "api_error"
 
 
+def _error_kind_from_exception(exc: Exception) -> str:
+    status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    body = " ".join(
+        str(value)
+        for value in (
+            getattr(exc, "message", ""),
+            getattr(exc, "status", ""),
+            getattr(exc, "response", ""),
+            exc,
+        )
+        if value
+    )
+    if isinstance(status_code, int):
+        return _error_kind_from_status(status_code, body)
+    lowered = body.lower()
+    if "resource_exhausted" in lowered or "quota" in lowered or "429" in lowered:
+        return "quota_exhausted"
+    if "permission_denied" in lowered or "unauthenticated" in lowered or "401" in lowered or "403" in lowered:
+        return "auth_error"
+    if "not_found" in lowered or "404" in lowered or "model" in lowered and "not" in lowered:
+        return "invalid_model"
+    return "api_error"
+
+
 def _safe_error_message(exc: Exception) -> str:
     if isinstance(exc, GeminiCallError):
         return exc.kind
     return type(exc).__name__
+
+
+def configured_provider() -> str:
+    provider = os.getenv("LLM_PROVIDER", DEFAULT_LLM_PROVIDER).strip().lower()
+    if provider in {"vertex", "vertex_ai", "vertexai"}:
+        return "vertex"
+    return "gemini_api"
+
+
+def uses_vertex_provider() -> bool:
+    return configured_provider() == "vertex"
 
 
 def configured_model() -> str:
@@ -75,7 +113,27 @@ def configured_router_model() -> str:
     return os.getenv("GEMINI_ROUTER_MODEL_NAME", configured_model()).strip() or configured_model()
 
 
+def configured_google_cloud_project() -> str:
+    return (
+        os.getenv("GOOGLE_CLOUD_PROJECT")
+        or os.getenv("GOOGLE_PROJECT_ID")
+        or os.getenv("GCLOUD_PROJECT")
+        or ""
+    ).strip()
+
+
+def configured_google_cloud_location() -> str:
+    return (
+        os.getenv("GOOGLE_CLOUD_LOCATION")
+        or os.getenv("GOOGLE_VERTEX_LOCATION")
+        or os.getenv("VERTEX_LOCATION")
+        or DEFAULT_VERTEX_LOCATION
+    ).strip() or DEFAULT_VERTEX_LOCATION
+
+
 def is_configured() -> bool:
+    if uses_vertex_provider():
+        return bool(configured_google_cloud_project())
     return bool(os.getenv("GEMINI_API_KEY"))
 
 
@@ -377,6 +435,18 @@ MẢNH KÝ ỨC HỆ THỐNG BỐC LÊN:
 
 
 def _call_gemini(system_prompt: str, user_prompt: str) -> str | None:
+    if uses_vertex_provider():
+        try:
+            return _vertex_generate_content(
+                configured_model(),
+                system_prompt,
+                user_prompt,
+                temperature=0.32,
+                top_p=0.9,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            )
+        except GeminiCallError:
+            return None
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -422,6 +492,19 @@ def _iter_sse_json_lines(response) -> Iterator[dict]:
 
 
 def _call_gemini_stream(system_prompt: str, user_prompt: str) -> Iterator[str]:
+    if uses_vertex_provider():
+        try:
+            yield from _vertex_generate_content_stream(
+                configured_model(),
+                system_prompt,
+                user_prompt,
+                temperature=0.34,
+                top_p=0.9,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            )
+        except GeminiCallError:
+            return
+        return
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return
@@ -469,26 +552,143 @@ def _post_json(url: str, headers: dict[str, str], payload: dict, timeout: float 
     return json.loads(response_data)
 
 
+def _load_genai():
+    try:
+        from google import genai
+        from google.genai import types
+    except Exception as exc:
+        raise GeminiCallError("not_configured", "google_genai_unavailable") from exc
+    return genai, types
+
+
+@lru_cache(maxsize=8)
+def _vertex_client(project: str, location: str):
+    genai, _ = _load_genai()
+    try:
+        return genai.Client(vertexai=True, project=project, location=location)
+    except Exception as exc:
+        raise GeminiCallError(_error_kind_from_exception(exc), _safe_error_message(exc)) from exc
+
+
+def _configured_vertex_client():
+    project = configured_google_cloud_project()
+    if not project:
+        raise GeminiCallError("not_configured", "missing_google_cloud_project")
+    return _vertex_client(project, configured_google_cloud_location())
+
+
+def _response_text(response: Any) -> str:
+    text = getattr(response, "text", None)
+    if text:
+        return str(text)
+    candidates = getattr(response, "candidates", None) or []
+    parts: list[str] = []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", None) or []:
+            part_text = getattr(part, "text", None)
+            if part_text:
+                parts.append(str(part_text))
+    return "".join(parts)
+
+
+def _vertex_generate_content(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float,
+    top_p: float,
+    max_output_tokens: int,
+    response_mime_type: str | None = None,
+) -> str:
+    _, types = _load_genai()
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+        response_mime_type=response_mime_type,
+    )
+    try:
+        response = _configured_vertex_client().models.generate_content(
+            model=model,
+            contents=user_prompt,
+            config=config,
+        )
+    except (TimeoutError, socket.timeout) as exc:
+        raise GeminiCallError("timeout", "timeout") from exc
+    except GeminiCallError:
+        raise
+    except Exception as exc:
+        raise GeminiCallError(_error_kind_from_exception(exc), _safe_error_message(exc)) from exc
+    return _response_text(response).strip()
+
+
+def _vertex_generate_content_stream(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float,
+    top_p: float,
+    max_output_tokens: int,
+) -> Iterator[str]:
+    _, types = _load_genai()
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+    )
+    try:
+        for response in _configured_vertex_client().models.generate_content_stream(
+            model=model,
+            contents=user_prompt,
+            config=config,
+        ):
+            text = _response_text(response)
+            if text:
+                yield text
+    except (TimeoutError, socket.timeout) as exc:
+        raise GeminiCallError("timeout", "timeout") from exc
+    except GeminiCallError:
+        raise
+    except Exception as exc:
+        raise GeminiCallError(_error_kind_from_exception(exc), _safe_error_message(exc)) from exc
+
+
 def route_query_json(query: str, profile: dict) -> dict:
     if not is_configured():
         return {"ok": False, "llm_status": "not_configured", "route": None}
     try:
         system_prompt, user_prompt = _build_router_prompts(query, profile)
-        model = urllib.parse.quote(configured_router_model(), safe="")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={os.getenv('GEMINI_API_KEY')}"
-        payload = {
-            "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-            "generationConfig": {
-                "temperature": 0.05,
-                "topP": 0.7,
-                "maxOutputTokens": ROUTER_MAX_OUTPUT_TOKENS,
-                "responseMimeType": "application/json",
-            },
-        }
-        response = _post_json(url, {"Content-Type": "application/json"}, payload, timeout=router_timeout_seconds())
-        parts = response.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        raw_text = "".join(part.get("text", "") for part in parts).strip()
+        if uses_vertex_provider():
+            raw_text = _vertex_generate_content(
+                configured_router_model(),
+                system_prompt,
+                user_prompt,
+                temperature=0.05,
+                top_p=0.7,
+                max_output_tokens=ROUTER_MAX_OUTPUT_TOKENS,
+                response_mime_type="application/json",
+            )
+        else:
+            model = urllib.parse.quote(configured_router_model(), safe="")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={os.getenv('GEMINI_API_KEY')}"
+            payload = {
+                "system_instruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.05,
+                    "topP": 0.7,
+                    "maxOutputTokens": ROUTER_MAX_OUTPUT_TOKENS,
+                    "responseMimeType": "application/json",
+                },
+            }
+            response = _post_json(url, {"Content-Type": "application/json"}, payload, timeout=router_timeout_seconds())
+            parts = response.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            raw_text = "".join(part.get("text", "") for part in parts).strip()
         route = json.loads(raw_text)
     except GeminiCallError as exc:
         return {"ok": False, "llm_status": exc.kind, "route": None}
@@ -531,6 +731,19 @@ def stream_fused_generation(query: str, profile: dict, citations: list[dict], ro
     if not is_configured():
         raise GeminiCallError("not_configured", "not_configured")
     system_prompt, user_prompt = _build_fused_generation_prompts(query, profile, citations, route)
+    if uses_vertex_provider():
+        yield from stream_sanitized_chunks(
+            _vertex_generate_content_stream(
+                configured_model(),
+                system_prompt,
+                user_prompt,
+                temperature=0.36,
+                top_p=0.9,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            ),
+            profile,
+        )
+        return
     model = urllib.parse.quote(configured_model(), safe="")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={os.getenv('GEMINI_API_KEY')}"
     payload = {

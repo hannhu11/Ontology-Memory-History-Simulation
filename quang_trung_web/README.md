@@ -30,7 +30,10 @@ notepad .env
 
 Không commit `.env`. Các biến chính:
 
-- `GEMINI_API_KEY` để gọi Gemini API.
+- `LLM_PROVIDER`: `gemini_api` để gọi Gemini API key cũ, hoặc `vertex` để gọi Vertex AI bằng ADC.
+- `GEMINI_API_KEY` chỉ dùng khi `LLM_PROVIDER=gemini_api`.
+- `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GOOGLE_GENAI_USE_VERTEXAI=true` dùng khi `LLM_PROVIDER=vertex`.
+- `GEMINI_MODEL_NAME`, `GEMINI_ROUTER_MODEL_NAME`; production Vertex mặc định dùng `gemini-2.5-flash`.
 - `GOOGLE_TTS_API_KEY` để gọi Google Cloud Text-to-Speech.
 - `GOOGLE_TTS_TIMEOUT_SECONDS` mặc định nên đặt `18`.
 - `RAG_SCORE_THRESHOLD` mặc định nên đặt `0.42`.
@@ -76,15 +79,22 @@ Lời nhân vật không được nói như bot đọc dataset. UI citation là 
 
 ## Real-Time Fused CRAG
 
-Runtime backend/FastAPI dùng kiến trúc fused CRAG tối đa 2 Gemini calls/request:
+Runtime backend/FastAPI dùng kiến trúc fused CRAG tối đa 2 Gemini/Vertex calls/request:
 
 - `llm_provider.route_query_json()` là call router JSON nhanh, cấu hình bằng `GEMINI_ROUTER_MODEL_NAME` hoặc `GEMINI_MODEL_NAME`.
 - `rag_core.answer_query()` nhận route, xử lý factual exact/local retrieval và không tự gọi LLM grader.
 - `llm_provider.stream_fused_generation()` là call generator stream duy nhất; prompt yêu cầu mô hình tự bỏ chunk rác, dùng tri thức lịch sử nền khi context thiếu, không lộ `dataset/chunk/citation`.
+- `LLM_PROVIDER=vertex` dùng `google-genai` với `genai.Client(vertexai=True, project=..., location=...)`; không cần Service Account JSON nếu host đã có `gcloud auth application-default login`.
 - Không có post-generation reflection vì SSE đã stream token ra UI. Kiểm soát xưng hô/thuật ngữ hệ thống chạy bằng streaming mask trước khi yield.
 - Nếu Gemini 429/timeout/chưa cấu hình, `local_route_query()` và local fallback bank theo nhân vật/intent vẫn tạo câu nhập vai; SSE metadata có `llm_status`, `fallback_used`, `route_source`.
 - Factual exact trước RAG: `birth`, `origin`, `real_name`, `death`, `identity`. Điều này chặn lỗi HCM `sinh năm` bị bốc chunk Bến Nhà Rồng 1911.
 - Chroma index safety ghi `embedding_provider`, `model_name`, `dimension`, `fingerprint`, `character_id`; đổi `RAG_EMBEDDING_PROVIDER`/model sẽ wipe và rebuild riêng index của nhân vật.
+
+Kiểm tra Vertex AI ADC trên VPS:
+
+```bash
+/home/ubuntu/history-ontology/quang_trung_web/.venv/bin/python quang_trung_web/verify_vertex.py
+```
 
 ## Âm Thanh Nhập Vai
 

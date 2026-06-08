@@ -50,7 +50,7 @@ notepad .env
 .\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1 --server.port 8501
 ```
 
-Biến cần thiết: `GEMINI_API_KEY`, `GOOGLE_TTS_API_KEY`, `GOOGLE_TTS_TIMEOUT_SECONDS`, `LLM_TIMEOUT_SECONDS`, `RAG_SCORE_THRESHOLD`, `RAG_TOP_K`, `RAG_EMBEDDING_MODEL`, `RAG_INDEX_DIR`.
+Biến cần thiết: `LLM_PROVIDER`, `GEMINI_API_KEY` hoặc `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION` cho Vertex ADC, `GOOGLE_TTS_API_KEY`, `GOOGLE_TTS_TIMEOUT_SECONDS`, `LLM_TIMEOUT_SECONDS`, `RAG_SCORE_THRESHOLD`, `RAG_TOP_K`, `RAG_EMBEDDING_MODEL`, `RAG_INDEX_DIR`.
 
 ## Kiến trúc hiện tại
 
@@ -73,15 +73,34 @@ Biến cần thiết: `GEMINI_API_KEY`, `GOOGLE_TTS_API_KEY`, `GOOGLE_TTS_TIMEOU
 
 ## Real-Time Fused CRAG
 
-Backend hiện dùng luồng fused CRAG tối đa 2 Gemini calls cho mỗi chat request:
+Backend hiện dùng luồng fused CRAG tối đa 2 Gemini/Vertex calls cho mỗi chat request:
 
 - Call 1: Semantic Router JSON (`GEMINI_ROUTER_MODEL_NAME`, mặc định theo `GEMINI_MODEL_NAME`) trả `intent`, `needs_rag`, `optimized_search_query`, `confidence`.
 - Retrieval local: nếu `needs_rag=true`, hybrid/vector search chạy theo query tối ưu, có local rerank theo intent/source tier/anchor. Không có LLM grader riêng.
-- Call 2: Generator stream (`GEMINI_MODEL_NAME`, mặc định `gemini-3.5-flash`) nhận top chunks và tự bỏ chunk rác trong system prompt. Không có post-stream reflection vì SSE không thể rút lại token đã gửi.
-- Nếu router/generator gặp 429 hoặc chưa cấu hình key, app dùng local fallback bank theo từng nhân vật/intent và SSE final đánh dấu `llm_status`, `fallback_used`, `route_source`.
+- Call 2: Generator stream (`GEMINI_MODEL_NAME`, mặc định `gemini-2.5-flash`) nhận top chunks và tự bỏ chunk rác trong system prompt. Không có post-stream reflection vì SSE không thể rút lại token đã gửi.
+- `LLM_PROVIDER=gemini_api` dùng Gemini API key cũ. `LLM_PROVIDER=vertex` dùng `google-genai` với Vertex AI ADC qua `gcloud auth application-default login`.
+- Nếu router/generator gặp 429/auth lỗi/chưa cấu hình, app dùng local fallback bank theo từng nhân vật/intent và SSE final đánh dấu `llm_status`, `fallback_used`, `route_source`.
 - Factual exact đi trước RAG cho `birth`, `origin`, `real_name`, `death`, `identity`; ví dụ `bac sinh nam bao nhieu` phải trả `19/5/1890`, không được bốc nhầm `5/6/1911`.
 - Streaming mask ở backend sửa tự xưng ngôi ba và chặn thuật ngữ hệ thống trước khi yield token qua SSE.
 - Chroma index ghi metadata `embedding_provider`, `model_name`, `dimension`, `fingerprint`, `character_id`; đổi `RAG_EMBEDDING_PROVIDER` hoặc model sẽ wipe/rebuild riêng index nhân vật để tránh dimension mismatch.
+
+## Vertex AI ADC production
+
+Trên VPS, không dùng Service Account JSON. Cài `gcloud`, đăng nhập ADC bằng tài khoản có quyền Vertex AI và cấu hình:
+
+```bash
+gcloud auth login --no-launch-browser
+gcloud auth application-default login --no-launch-browser
+gcloud config set project project-8fbd66f4-2cd0-4a03-a508
+gcloud auth application-default set-quota-project project-8fbd66f4-2cd0-4a03-a508
+gcloud services enable aiplatform.googleapis.com
+```
+
+Sau đó đặt trong `quang_trung_web/.env`: `LLM_PROVIDER=vertex`, `GOOGLE_CLOUD_PROJECT=project-8fbd66f4-2cd0-4a03-a508`, `GOOGLE_CLOUD_LOCATION=us-central1`, `GOOGLE_GENAI_USE_VERTEXAI=true`, `GEMINI_MODEL_NAME=gemini-2.5-flash`, `GEMINI_ROUTER_MODEL_NAME=gemini-2.5-flash`. Kiểm tra bằng:
+
+```bash
+/home/ubuntu/history-ontology/quang_trung_web/.venv/bin/python quang_trung_web/verify_vertex.py
+```
 
 ## Voice Matrix
 
