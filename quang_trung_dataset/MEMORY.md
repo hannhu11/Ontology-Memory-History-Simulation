@@ -500,3 +500,30 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - load domain thấy đủ 5 nhân vật, khung nhập sẵn sàng;
   - gửi `vua hãy cho tôi biết trận ngọc hồi, đống đa đi` qua UI trả câu dài, đúng trọng tâm trận quân Thanh;
   - console browser không có warnings/errors.
+
+## Real-Time Fused CRAG overhaul local ngày 2026-06-08
+
+- Đã thay luồng RAG/LLM theo kiến trúc fused CRAG tối đa 2 Gemini calls/request:
+  - Call 1: `route_query_json()` trong `llm_provider.py` gọi router JSON nhanh, trả `intent`, `needs_rag`, `optimized_search_query`, `confidence`.
+  - Retrieval local chạy theo route; không gọi LLM grader riêng.
+  - Call 2: `stream_fused_generation()` stream Gemini với prompt tự đánh giá chunk rác, dùng tri thức nền khi context thiếu, không có post-stream reflector.
+- Nếu router Gemini 429/timeout/không cấu hình, `local_route_query()` chỉ định tuyến deterministic cho intent an toàn: `smalltalk`, `identity`, `birth`, `origin`, `real_name`, `death`, `anachronism_trap`, `private_life`, `history_battle`, `philosophy`, `history_fact`.
+- Factual exact hiện đi trước RAG để tránh Naive RAG ép trả sai:
+  - `bac sinh nam bao nhieu` -> `19/5/1890`, không được trả `5/6/1911`;
+  - `ong voi Nguyen Hue la gi cua nhau` -> Nguyễn Huệ là tên người, Quang Trung là niên hiệu, không phải hai người/anh em;
+  - Võ Nguyên Giáp sinh `25/8/1911` tại Lộc Thủy, Lệ Thủy, Quảng Bình;
+  - Trần Hưng Đạo sinh khoảng `1228`; Nguyễn Trãi sinh `1380`.
+- Đã tách `birth`, `origin`, `real_name`, `death`, `departure` khỏi `life_milestone`; câu Hồ Chí Minh `sinh năm` không còn query-variant sang Bến Nhà Rồng 1911.
+- Đã thêm local fallback answer bank theo từng nhân vật và intent: `smalltalk`, `identity`, `birth`, `origin`, `history_battle`, `philosophy`, `anachronism_trap`, `private_life`. Khi Gemini generator 429 trước token đầu tiên, SSE vẫn stream fallback nhập vai và final metadata có `llm_status=quota_exhausted`, `fallback_used=true`.
+- Backend SSE mới phát diagnostics an toàn ở `retrieval` và `final`: `route`, `route_source`, `llm_status`, `fallback_used`.
+- Streaming sanitation chạy trước khi yield SSE token: `stream_sanitized_chunks()`/`sanitize_generated_text()` mask tên tự xưng ngôi ba và xóa thuật ngữ hệ thống như `dataset`, `chunk`, `citation`, `API`.
+- Chroma index safety:
+  - metadata index mới gồm `embedding_provider`, `model_name`, `dimension`, `fingerprint`, `character_id`;
+  - nếu metadata cũ/mismatch hoặc index legacy không có metadata, `VectorRetriever` xóa riêng thư mục index của nhân vật đó rồi rebuild;
+  - hỗ trợ cấu hình `RAG_EMBEDDING_PROVIDER=local|gemini`, `RAG_EMBEDDING_MODEL`, `RAG_GEMINI_EMBEDDING_MODEL`.
+- Visual classifier ưu tiên route factual/identity trước battle marker; câu birth/origin không bị citation quân sự kéo sang `battle_detail`. Riêng Quang Trung self-name confusion vẫn dùng `identity_confusion/confused`.
+- Tests đã thêm/cập nhật:
+  - backend smoke khóa SSE metadata, HCM birth 1890, Quang Trung identity, birth regressions cho 5 nhân vật, Võ Nguyên Giáp Điện Biên Phủ 1954/đánh chắc, mocked router 429;
+  - web smoke khóa streaming mask, index metadata mismatch rebuild, factual regressions, corrective local rerank cho micro_tactics như ăn Tết trước/mồng 7;
+  - `python -m py_compile ...`, `python backend/smoke_test.py`, `python quang_trung_web/smoke_test.py`, `cd frontend && npm run build` đều pass local.
+- Chưa deploy production trong mục này. Nếu deploy: chỉ pull/build/restart `history-ontology-api.service` và `history-ontology-web.service`; không sửa Nginx/PetHub.

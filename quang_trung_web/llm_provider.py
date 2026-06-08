@@ -1,8 +1,11 @@
 import json
 import os
 import re
+import socket
 import urllib.parse
 import urllib.request
+import urllib.error
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -20,6 +23,7 @@ except ImportError:
 MODEL_NAME = "gemini-3.5-flash"
 DEFAULT_TIMEOUT_SECONDS = 18.0
 MAX_OUTPUT_TOKENS = 1400
+ROUTER_MAX_OUTPUT_TOKENS = 240
 
 FORBIDDEN_CHARACTER_TERMS = (
     "nguồn",
@@ -37,8 +41,38 @@ FORBIDDEN_CHARACTER_TERMS = (
 )
 
 
+@dataclass
+class GeminiCallError(Exception):
+    kind: str
+    message: str = ""
+
+    def __str__(self) -> str:
+        return self.kind
+
+
+def _error_kind_from_status(status_code: int, body: str = "") -> str:
+    lowered = body.lower()
+    if status_code == 429 or "resource_exhausted" in lowered or "quota" in lowered:
+        return "quota_exhausted"
+    if status_code in {401, 403}:
+        return "auth_error"
+    if status_code == 404:
+        return "invalid_model"
+    return "api_error"
+
+
+def _safe_error_message(exc: Exception) -> str:
+    if isinstance(exc, GeminiCallError):
+        return exc.kind
+    return type(exc).__name__
+
+
 def configured_model() -> str:
-    return MODEL_NAME
+    return os.getenv("GEMINI_MODEL_NAME", MODEL_NAME).strip() or MODEL_NAME
+
+
+def configured_router_model() -> str:
+    return os.getenv("GEMINI_ROUTER_MODEL_NAME", configured_model()).strip() or configured_model()
 
 
 def is_configured() -> bool:
@@ -51,6 +85,14 @@ def request_timeout_seconds() -> float:
         return max(5.0, float(raw_value))
     except ValueError:
         return DEFAULT_TIMEOUT_SECONDS
+
+
+def router_timeout_seconds() -> float:
+    raw_value = os.getenv("LLM_ROUTER_TIMEOUT_SECONDS", "5").strip()
+    try:
+        return max(2.0, float(raw_value))
+    except ValueError:
+        return 5.0
 
 
 def _citation_context(citations: Iterable[dict]) -> str:
@@ -172,6 +214,33 @@ def _mentions_self_name(text: str, profile: dict) -> bool:
     return any(name.lower() in lowered for name in _self_names(profile))
 
 
+def sanitize_generated_text(text: str, profile: dict) -> str:
+    cleaned = _enforce_first_person(text, profile)
+    for term in FORBIDDEN_CHARACTER_TERMS:
+        cleaned = re.sub(rf"\b{re.escape(term)}\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.!?;:])", r"\1", cleaned)
+    return cleaned.strip()
+
+
+def stream_sanitized_chunks(chunks: Iterable[str], profile: dict, tail_size: int = 96) -> Iterator[str]:
+    """Mask self-name leaks before chunks are sent over SSE."""
+    buffer = ""
+    for chunk in chunks:
+        if not chunk:
+            continue
+        buffer += chunk
+        if len(buffer) <= tail_size:
+            continue
+        emit, buffer = buffer[:-tail_size], buffer[-tail_size:]
+        sanitized = sanitize_generated_text(emit, profile)
+        if sanitized:
+            yield sanitized
+    sanitized_tail = sanitize_generated_text(buffer, profile)
+    if sanitized_tail:
+        yield sanitized_tail
+
+
 def _build_prompts(query: str, profile: dict, citations: list[dict]) -> tuple[str, str] | None:
     metadata = profile["character_metadata"]
     context = _citation_context(citations)
@@ -213,6 +282,96 @@ CÂU HỎI:
 
 TƯ LIỆU ĐỐI CHIẾU:
 {context if context else "Không có đoạn đối chiếu trực tiếp; hãy trả lời ở tầng đại cục, không bịa chi tiết vi mô."}
+""".strip()
+    return system_prompt, user_prompt
+
+
+def _build_router_prompts(query: str, profile: dict) -> tuple[str, str]:
+    metadata = profile["character_metadata"]
+    system_prompt = """
+Bạn là Semantic Router cho một hệ thống đối thoại nhập vai lịch sử.
+Chỉ trả về JSON hợp lệ, không markdown, không giải thích.
+Các intent hợp lệ: smalltalk, identity, birth, origin, real_name, death, history_battle, philosophy, anachronism_trap, private_life, history_fact.
+""".strip()
+    user_prompt = f"""
+Nhân vật: {metadata.get("name")}
+Tên đầy đủ/bí danh: {metadata.get("full_name", "")}; {", ".join(metadata.get("aliases", []))}
+Năm sinh: {metadata.get("birth_year", metadata.get("born", ""))}
+Năm mất: {metadata.get("death_year", metadata.get("died", ""))}
+Câu hỏi: {query}
+
+Trả về đúng JSON:
+{{
+  "intent": "smalltalk|identity|birth|origin|real_name|death|history_battle|philosophy|anachronism_trap|private_life|history_fact",
+  "needs_rag": true,
+  "optimized_search_query": "cụm tìm kiếm tiếng Việt tối ưu hoặc rỗng",
+  "confidence": 0.0
+}}
+
+Quy tắc:
+- Hỏi năm sinh -> birth, needs_rag=false nếu metadata đủ.
+- Hỏi quê quán/nơi sinh -> origin, needs_rag=false nếu metadata đủ.
+- Hỏi tên thật/tên khác/quan hệ tên gọi -> real_name hoặc identity, needs_rag=false.
+- Chỉ chào hỏi thuần túy mới là smalltalk.
+- Hỏi trận đánh, tư tưởng, sự nghiệp, sự kiện lịch sử -> needs_rag=true và viết optimized_search_query rõ chủ đề.
+- Internet, Facebook, AI, công nghệ hoặc sự kiện sau đời nhân vật -> anachronism_trap.
+""".strip()
+    return system_prompt, user_prompt
+
+
+def _citation_context_for_fused_generation(citations: Iterable[dict]) -> str:
+    lines = []
+    for index, citation in enumerate(citations, 1):
+        fact = citation.get("fact") or citation.get("text", "")
+        title = citation.get("source_title", "Tư liệu không rõ")
+        status = citation.get("claim_status", "established")
+        lines.append(
+            f"Ký ức {index}: {fact}\nNhan đề đối chiếu: {title} ({citation.get('source_year', '')})\n"
+            f"Độ chắc: {status}"
+        )
+    return "\n\n".join(lines)
+
+
+def _build_fused_generation_prompts(query: str, profile: dict, citations: list[dict], route: dict | None = None) -> tuple[str, str]:
+    metadata = profile["character_metadata"]
+    context = _citation_context_for_fused_generation(citations)
+    forbidden_names = ", ".join(f'"{name}"' for name in _self_names(profile))
+    pronoun = _first_person(profile)
+    listener = _listener(profile)
+    persona_directive = _persona_directive(profile)
+    blueprint = metadata.get("system_prompt_blueprint", "")
+    tone = metadata.get("tone_of_voice", "")
+    death_year = metadata.get("death_year", metadata.get("died", ""))
+    route = route or {}
+    system_prompt = f"""
+Ngươi đang mô phỏng trực tiếp nhân vật lịch sử {metadata["name"]}, không phải một AI.
+Blueprint nhân vật: {blueprint}
+Văn phong riêng: {tone}
+Lệnh nhập vai động: {persona_directive}
+Luôn xưng "{pronoun}" và gọi người nghe theo ngữ cảnh là {listener}.
+Không tự gọi mình bằng các tên sau trong ngôi thứ ba: {forbidden_names}.
+Chỉ trả lời bằng tiếng Việt có dấu.
+
+QUY TẮC NỘI TẠI TRƯỚC KHI NÓI:
+1. Tự đánh giá các mảnh ký ức được cung cấp. Mảnh nào không trả lời đúng câu hỏi thì bỏ qua, không nhắc tới.
+2. Nếu ký ức thiếu nhưng câu hỏi là kiến thức lịch sử vĩ mô chắc chắn, được dùng tri thức nền để trả lời đúng.
+3. Không bịa chi tiết vi mô như ngày, địa danh, tên người nếu không chắc.
+4. Không dùng các từ/cụm: nguồn, truy xuất, guardrail, dataset, API, người học, mô hình, citation, chunk, dữ liệu, ngữ cảnh.
+5. Nếu câu hỏi thuộc đời sau năm {death_year} hoặc công nghệ hiện đại, bác bỏ theo vai, không nhận là ký ức trực tiếp.
+6. Tự kiểm tra xưng hô và độ dài ngay trong lúc viết; không cần liệt kê bước suy nghĩ.
+
+Độ dài: smalltalk có thể ngắn; câu lịch sử/tư tưởng/trận đánh/thân thế cần 2-4 đoạn văn xuôi, tối thiểu 5 câu nếu câu hỏi không quá hẹp.
+TRẢ LỜI NGAY LẬP TỨC, không viết gạch đầu dòng.
+""".strip()
+    user_prompt = f"""
+CÂU HỎI:
+{query}
+
+ROUTE:
+intent={route.get("intent", "")}; optimized_search_query={route.get("optimized_search_query", "")}
+
+MẢNH KÝ ỨC HỆ THỐNG BỐC LÊN:
+{context if context else "Không có mảnh ký ức trực tiếp. Hãy dùng tri thức lịch sử vĩ mô chắc chắn và profile nhân vật để trả lời thẳng."}
 """.strip()
     return system_prompt, user_prompt
 
@@ -294,16 +453,121 @@ def _call_gemini_stream(system_prompt: str, user_prompt: str) -> Iterator[str]:
         return
 
 
-def _post_json(url: str, headers: dict[str, str], payload: dict) -> dict:
+def _post_json(url: str, headers: dict[str, str], payload: dict, timeout: float | None = None) -> dict:
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(request, timeout=request_timeout_seconds()) as response:
-        response_data = response.read().decode("utf-8")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout or request_timeout_seconds()) as response:
+            response_data = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise GeminiCallError(_error_kind_from_status(exc.code, body), _safe_error_message(exc)) from exc
+    except (TimeoutError, socket.timeout) as exc:
+        raise GeminiCallError("timeout", "timeout") from exc
+    except Exception as exc:
+        raise GeminiCallError("api_error", _safe_error_message(exc)) from exc
     return json.loads(response_data)
 
 
+def route_query_json(query: str, profile: dict) -> dict:
+    if not is_configured():
+        return {"ok": False, "llm_status": "not_configured", "route": None}
+    try:
+        system_prompt, user_prompt = _build_router_prompts(query, profile)
+        model = urllib.parse.quote(configured_router_model(), safe="")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={os.getenv('GEMINI_API_KEY')}"
+        payload = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": {
+                "temperature": 0.05,
+                "topP": 0.7,
+                "maxOutputTokens": ROUTER_MAX_OUTPUT_TOKENS,
+                "responseMimeType": "application/json",
+            },
+        }
+        response = _post_json(url, {"Content-Type": "application/json"}, payload, timeout=router_timeout_seconds())
+        parts = response.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        raw_text = "".join(part.get("text", "") for part in parts).strip()
+        route = json.loads(raw_text)
+    except GeminiCallError as exc:
+        return {"ok": False, "llm_status": exc.kind, "route": None}
+    except Exception:
+        return {"ok": False, "llm_status": "invalid_router_json", "route": None}
+
+    intent = str(route.get("intent", "history_fact")).strip() or "history_fact"
+    if intent not in {
+        "smalltalk",
+        "identity",
+        "birth",
+        "origin",
+        "real_name",
+        "death",
+        "history_battle",
+        "philosophy",
+        "anachronism_trap",
+        "private_life",
+        "history_fact",
+    }:
+        intent = "history_fact"
+    try:
+        confidence = float(route.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {
+        "ok": True,
+        "llm_status": "ok",
+        "route": {
+            "intent": intent,
+            "needs_rag": bool(route.get("needs_rag", True)),
+            "optimized_search_query": str(route.get("optimized_search_query", "") or ""),
+            "confidence": confidence,
+            "source": "llm",
+        },
+    }
+
+
+def stream_fused_generation(query: str, profile: dict, citations: list[dict], route: dict | None = None) -> Iterator[str]:
+    if not is_configured():
+        raise GeminiCallError("not_configured", "not_configured")
+    system_prompt, user_prompt = _build_fused_generation_prompts(query, profile, citations, route)
+    model = urllib.parse.quote(configured_model(), safe="")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={os.getenv('GEMINI_API_KEY')}"
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": {
+            "temperature": 0.36,
+            "topP": 0.9,
+            "maxOutputTokens": MAX_OUTPUT_TOKENS,
+        },
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=request_timeout_seconds()) as response:
+            yield from stream_sanitized_chunks(
+                (_extract_text_from_stream_payload(payload_chunk) for payload_chunk in _iter_sse_json_lines(response)),
+                profile,
+            )
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise GeminiCallError(_error_kind_from_status(exc.code, body), _safe_error_message(exc)) from exc
+    except (TimeoutError, socket.timeout) as exc:
+        raise GeminiCallError("timeout", "timeout") from exc
+    except GeminiCallError:
+        raise
+    except Exception as exc:
+        raise GeminiCallError("api_error", _safe_error_message(exc)) from exc
+
+
 def clean_generated_answer(text: str, profile: dict) -> str | None:
-    cleaned = _enforce_first_person(text, profile)
+    cleaned = sanitize_generated_text(text, profile)
     if (
         not _looks_truncated(cleaned)
         and not _contains_forbidden_character_terms(cleaned)

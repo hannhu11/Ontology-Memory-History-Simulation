@@ -1,6 +1,10 @@
 import os
+import json
+import tempfile
+from pathlib import Path
 
 from character_registry import CHARACTER_REGISTRY
+from llm_provider import stream_sanitized_chunks
 from rag_core import (
     DEFAULT_DATASET_DIR,
     VectorRetriever,
@@ -200,6 +204,53 @@ def validate_tts_provider_contract() -> None:
             os.environ["GOOGLE_TTS_API_KEY"] = old_key
 
 
+def validate_streaming_mask() -> None:
+    profile = load_profile("vo_nguyen_giap")
+    text = "Võ Nguyên Giáp cho rằng dataset và chunk này cần được xử lý."
+    masked = "".join(stream_sanitized_chunks([text], profile, tail_size=12))
+    if "Võ Nguyên Giáp" in masked or "dataset" in masked or "chunk" in masked:
+        raise AssertionError(f"Streaming mask leaked forbidden text: {masked}")
+    if "tôi" not in masked.lower():
+        raise AssertionError(f"Streaming mask should convert self-name to first person: {masked}")
+
+
+def validate_index_metadata_rebuild_guard() -> None:
+    chunks = load_chunks("quang_trung")[:3]
+    with tempfile.TemporaryDirectory() as tmp:
+        persist_dir = Path(tmp) / "quang_trung"
+        persist_dir.mkdir(parents=True)
+        (persist_dir / "stale.txt").write_text("stale", encoding="utf-8")
+        (persist_dir / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "fingerprint": "old",
+                    "embedding_provider": "gemini",
+                    "model_name": "gemini-embedding-2-preview",
+                    "dimension": 768,
+                    "character_id": "quang_trung",
+                }
+            ),
+            encoding="utf-8",
+        )
+        old_provider = os.environ.get("RAG_EMBEDDING_PROVIDER")
+        try:
+            os.environ["RAG_EMBEDDING_PROVIDER"] = "local"
+            retriever = VectorRetriever(chunks, persist_dir=persist_dir, character_id="quang_trung")
+            if retriever._backend == "vector":
+                metadata = json.loads((persist_dir / "metadata.json").read_text(encoding="utf-8"))
+                if metadata["embedding_provider"] != "local":
+                    raise AssertionError("Index metadata should be rewritten for local provider")
+                if int(metadata["dimension"]) == 768:
+                    raise AssertionError("Index dimension should not preserve stale Gemini dimension")
+                if (persist_dir / "stale.txt").exists():
+                    raise AssertionError("Stale index file should be wiped on metadata mismatch")
+        finally:
+            if old_provider is None:
+                os.environ.pop("RAG_EMBEDDING_PROVIDER", None)
+            else:
+                os.environ["RAG_EMBEDDING_PROVIDER"] = old_provider
+
+
 def is_edge_question(question: str) -> bool:
     lower = question.lower()
     return (
@@ -359,8 +410,40 @@ def validate_multi_character_runtime() -> None:
             raise AssertionError(f"{character_id} answer lacks persona detail: {result['answer']}")
 
 
+def validate_factual_regressions() -> None:
+    cases = [
+        ("ho_chi_minh", "bac sinh nam bao nhieu", ("19/5/1890",), ("5/6/1911",)),
+        ("quang_trung", "ong voi Nguyen Hue la gi cua nhau", ("Nguyễn Huệ", "niên hiệu"), ("gươm giáo chỉ là bước mở đường",)),
+        ("tran_hung_dao", "dai vuong sinh nam bao nhieu", ("1228",), ()),
+        ("nguyen_trai", "tien sinh sinh nam bao nhieu", ("1380",), ()),
+        ("vo_nguyen_giap", "dai tuong sinh nam bao nhieu", ("1911", "Lộc Thủy"), ()),
+        ("vo_nguyen_giap", "chien dich dien bien phu vi sao thang", ("Điện Biên Phủ",), ("trên không",)),
+    ]
+    for character_id, question, must_contain, forbidden in cases:
+        profile = load_profile(character_id)
+        retriever = VectorRetriever(load_chunks(character_id), character_id=character_id)
+        result = answer_query(question, profile, retriever)
+        print("=" * 80)
+        print("FACTUAL_REGRESSION:", character_id, question)
+        print("STATE:", result["state"])
+        print("MODE:", result["mode"])
+        print("ROUTE:", result.get("route"))
+        print("ANSWER:", result["answer"][:700])
+        if result["state"] != "talking":
+            raise AssertionError(f"{character_id} factual regression should keep talking state")
+        answer = result["answer"]
+        for term in must_contain:
+            if term.lower() not in answer.lower():
+                raise AssertionError(f"{character_id} answer missing {term}: {answer}")
+        for term in forbidden:
+            if term.lower() in answer.lower():
+                raise AssertionError(f"{character_id} answer leaked forbidden {term}: {answer}")
+
+
 def main() -> int:
     validate_tts_provider_contract()
+    validate_streaming_mask()
+    validate_index_metadata_rebuild_guard()
     if set(CHARACTER_REGISTRY) != set(VOICE_PROFILES):
         raise AssertionError("Character registry and voice profiles should contain the same IDs")
     profile = load_profile(DEFAULT_DATASET_DIR)
@@ -369,6 +452,7 @@ def main() -> int:
     validate_battle_reflection(profile, retriever)
     validate_battle_description(profile, retriever)
     validate_multi_character_runtime()
+    validate_factual_regressions()
     for question in QUESTIONS:
         result = answer_query(question, profile, retriever)
         print("=" * 80)

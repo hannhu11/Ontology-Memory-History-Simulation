@@ -74,6 +74,18 @@ Lời nhân vật không được nói như bot đọc dataset. UI citation là 
 - Không bịa chi tiết vi mô như ngày, địa danh, tên người nếu citation không neo được.
 - Post-process chuyển ngôi thứ ba sang ngôi thứ nhất để nhân vật không tự gọi tên mình trong câu trả lời.
 
+## Real-Time Fused CRAG
+
+Runtime backend/FastAPI dùng kiến trúc fused CRAG tối đa 2 Gemini calls/request:
+
+- `llm_provider.route_query_json()` là call router JSON nhanh, cấu hình bằng `GEMINI_ROUTER_MODEL_NAME` hoặc `GEMINI_MODEL_NAME`.
+- `rag_core.answer_query()` nhận route, xử lý factual exact/local retrieval và không tự gọi LLM grader.
+- `llm_provider.stream_fused_generation()` là call generator stream duy nhất; prompt yêu cầu mô hình tự bỏ chunk rác, dùng tri thức lịch sử nền khi context thiếu, không lộ `dataset/chunk/citation`.
+- Không có post-generation reflection vì SSE đã stream token ra UI. Kiểm soát xưng hô/thuật ngữ hệ thống chạy bằng streaming mask trước khi yield.
+- Nếu Gemini 429/timeout/chưa cấu hình, `local_route_query()` và local fallback bank theo nhân vật/intent vẫn tạo câu nhập vai; SSE metadata có `llm_status`, `fallback_used`, `route_source`.
+- Factual exact trước RAG: `birth`, `origin`, `real_name`, `death`, `identity`. Điều này chặn lỗi HCM `sinh năm` bị bốc chunk Bến Nhà Rồng 1911.
+- Chroma index safety ghi `embedding_provider`, `model_name`, `dimension`, `fingerprint`, `character_id`; đổi `RAG_EMBEDDING_PROVIDER`/model sẽ wipe và rebuild riêng index của nhân vật.
+
 ## Âm Thanh Nhập Vai
 
 TTS dùng REST API, không dùng Service Account JSON và không ghi MP3 ra ổ đĩa. Audio được trả base64 và phát dưới câu trả lời.
@@ -123,6 +135,9 @@ Smoke test hiện kiểm tra:
 
 - Quang Trung battle reflection và mô tả trận quân Thanh.
 - Regression câu thật của user: `chao vua, vua hay cho toi biet ve tran danh ngoc hoi , dong da di` không được trả fallback `Ta đang nghe`; `ông với nguyễn huệ là gì của nhau` phải trả đúng quan hệ tên/niên hiệu.
+- Factual regressions: `bac sinh nam bao nhieu` -> `19/5/1890`; birth/origin/identity cho 5 nhân vật; Võ Nguyên Giáp Điện Biên Phủ phải giữ 1954/`đánh chắc tiến chắc`.
+- Mock 429: UI vẫn nhận token fallback local và final metadata có `llm_status=quota_exhausted`.
+- Unit smoke: streaming mask không lộ self-name/dataset/chunk; index metadata mismatch rebuild không giữ dimension cũ.
 - Positive/negative cases cho đủ 5 nhân vật.
 - Không lẫn citation giữa nhân vật.
 - Không tự gọi tên nhân vật trong câu trả lời tự nhiên.

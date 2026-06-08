@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["GOOGLE_TTS_API_KEY"] = ""
@@ -43,6 +44,9 @@ def final_answer_for(client: TestClient, character_id: str, message: str) -> dic
     assert "final" in names
     final = [data for name, data in events if name == "final"][-1]
     assert "visual" in final
+    assert "llm_status" in final
+    assert "fallback_used" in final
+    assert "route_source" in final
     assert final["visual"]["emotion"] in {"idle", "thinking", "talking", "happy", "angry", "sad", "confused"}
     return final
 
@@ -66,13 +70,13 @@ def main() -> None:
         }
 
         quang_trung = final_answer_for(client, "quang_trung", "ông với Nguyễn Huệ là anh em à")
-        assert "tên của ta" in quang_trung["answer"]
+        assert "Nguyễn Huệ chính là" in quang_trung["answer"]
         assert "không phải" in quang_trung["answer"]
         assert "gươm giáo chỉ là bước mở đường" not in quang_trung["answer"]
 
         name_relation = final_answer_for(client, "quang_trung", "ông với nguyễn huệ là gì của nhau")
-        assert "tên của ta" in name_relation["answer"]
-        assert "không phải" in name_relation["answer"]
+        assert "Nguyễn Huệ chính là" in name_relation["answer"]
+        assert "niên hiệu" in name_relation["answer"]
         assert name_relation["visual"]["intent"] == "identity_confusion"
 
         ngoc_hoi = final_answer_for(
@@ -95,9 +99,44 @@ def main() -> None:
         assert "Chuyện riêng tư" in bac["answer"]
         assert "Việc gì có lợi cho dân" not in bac["answer"]
 
+        hcm_birth = final_answer_for(client, "ho_chi_minh", "bac sinh nam bao nhieu")
+        assert "19/5/1890" in hcm_birth["answer"]
+        assert "5/6/1911" not in hcm_birth["answer"]
+        assert hcm_birth["mode"] == "factual"
+        assert hcm_birth["visual"]["intent"] == "identity"
+
+        thd_birth = final_answer_for(client, "tran_hung_dao", "đại vương sinh năm bao nhiêu")
+        assert "1228" in thd_birth["answer"]
+        assert thd_birth["mode"] == "factual"
+
+        nt_birth = final_answer_for(client, "nguyen_trai", "tiên sinh sinh năm bao nhiêu")
+        assert "1380" in nt_birth["answer"]
+        assert nt_birth["mode"] == "factual"
+
+        giap_birth = final_answer_for(client, "vo_nguyen_giap", "đại tướng sinh năm bao nhiêu")
+        assert "1911" in giap_birth["answer"]
+        assert "Lộc Thủy" in giap_birth["answer"]
+        assert giap_birth["mode"] == "factual"
+
         giap = final_answer_for(client, "vo_nguyen_giap", "tư tưởng đánh giặc của bác giáp là gì vậy")
         assert "Võ Nguyên Giáp" not in giap["answer"]
         assert "Tôi" in giap["answer"] or "tôi" in giap["answer"]
+
+        dien_bien_phu = final_answer_for(client, "vo_nguyen_giap", "chiến dịch điện biên phủ vì sao thắng")
+        lowered_dien_bien = dien_bien_phu["answer"].lower()
+        assert "điện biên phủ" in lowered_dien_bien
+        assert "1954" in dien_bien_phu["answer"] or "đánh chắc" in lowered_dien_bien
+        assert "trên không" not in lowered_dien_bien
+
+        os.environ["GEMINI_API_KEY"] = "fake-key"
+        try:
+            with patch("main.route_query_json", return_value={"ok": False, "llm_status": "quota_exhausted", "route": None}):
+                quota = final_answer_for(client, "vo_nguyen_giap", "chiến dịch điện biên phủ vì sao thắng")
+        finally:
+            os.environ["GEMINI_API_KEY"] = ""
+        assert quota["llm_status"] == "quota_exhausted"
+        assert quota["fallback_used"] is True
+        assert "Điện Biên Phủ" in quota["answer"]
 
         tts = client.post("/api/tts", json={"character_id": "ho_chi_minh", "text": "Bác chào các cháu."})
         assert tts.status_code == 200

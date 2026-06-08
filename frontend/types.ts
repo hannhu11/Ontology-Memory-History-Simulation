@@ -34,6 +34,21 @@ export type Citation = {
   fact: string;
 };
 
+export type RouteInfo = {
+  intent: string;
+  needs_rag: boolean;
+  optimized_search_query?: string;
+  confidence?: number;
+  source?: string;
+};
+
+export type StreamDiagnostics = {
+  route?: RouteInfo;
+  route_source?: string;
+  llm_status?: string;
+  fallback_used?: boolean;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -48,11 +63,11 @@ export type ChatMessage = {
 
 export type StreamEvent =
   | { event: "start"; data: { character_id: string; status: string; visual?: CharacterVisual } }
-  | { event: "retrieval"; data: { mode: string; state: string; citations: Citation[] } }
+  | { event: "retrieval"; data: { mode: string; state: string; citations: Citation[] } & StreamDiagnostics }
   | { event: "stream_start"; data: { intent: string; emotion: VisualEmotion; visual: CharacterVisual } }
   | { event: "token"; data: { text: string } }
   | {
       event: "final";
-      data: { answer: string; mode: string; state: string; citations: Citation[]; visual?: CharacterVisual };
+      data: { answer: string; mode: string; state: string; citations: Citation[]; visual?: CharacterVisual } & StreamDiagnostics;
     }
   | { event: "error"; data: { message: string; detail?: string } };

@@ -71,6 +71,18 @@ Biến cần thiết: `GEMINI_API_KEY`, `GOOGLE_TTS_API_KEY`, `GOOGLE_TTS_TIMEOU
 - Quang Trung dùng bộ asset 1254x1254 trong `quang_trung_web/assets/quang_trung/` và 2 sprite sheet `Quang Trung-hero_thinking.png`, `Quang Trung-attack.png`. Frontend render trong `CharacterViewer`, không scale ảnh làm vỡ layout; right rail dùng sticky container để asset đi cùng khi người dùng cuộn hội thoại.
 - Audio của tin nhắn cũ không điều khiển asset hiện tại. Nếu `attack` đang chạy, audio không hủy motion; sprite kết thúc rồi mới chuyển sang lip-sync/talking.
 
+## Real-Time Fused CRAG
+
+Backend hiện dùng luồng fused CRAG tối đa 2 Gemini calls cho mỗi chat request:
+
+- Call 1: Semantic Router JSON (`GEMINI_ROUTER_MODEL_NAME`, mặc định theo `GEMINI_MODEL_NAME`) trả `intent`, `needs_rag`, `optimized_search_query`, `confidence`.
+- Retrieval local: nếu `needs_rag=true`, hybrid/vector search chạy theo query tối ưu, có local rerank theo intent/source tier/anchor. Không có LLM grader riêng.
+- Call 2: Generator stream (`GEMINI_MODEL_NAME`, mặc định `gemini-3.5-flash`) nhận top chunks và tự bỏ chunk rác trong system prompt. Không có post-stream reflection vì SSE không thể rút lại token đã gửi.
+- Nếu router/generator gặp 429 hoặc chưa cấu hình key, app dùng local fallback bank theo từng nhân vật/intent và SSE final đánh dấu `llm_status`, `fallback_used`, `route_source`.
+- Factual exact đi trước RAG cho `birth`, `origin`, `real_name`, `death`, `identity`; ví dụ `bac sinh nam bao nhieu` phải trả `19/5/1890`, không được bốc nhầm `5/6/1911`.
+- Streaming mask ở backend sửa tự xưng ngôi ba và chặn thuật ngữ hệ thống trước khi yield token qua SSE.
+- Chroma index ghi metadata `embedding_provider`, `model_name`, `dimension`, `fingerprint`, `character_id`; đổi `RAG_EMBEDDING_PROVIDER` hoặc model sẽ wipe/rebuild riêng index nhân vật để tránh dimension mismatch.
+
 ## Voice Matrix
 
 Provider hiện tại không có voice `vi-VN` theo miền Trung/Bình Định/Nghệ An. App mô phỏng khác biệt giọng bằng SSML ở backend:
@@ -110,6 +122,9 @@ Regression mới bắt buộc:
 
 - `chao vua, vua hay cho toi biet ve tran danh ngoc hoi , dong da di` không được trả `Ta đang nghe`, phải route về Ngọc Hồi - Đống Đa và motion `attack`.
 - `ông với nguyễn huệ là gì của nhau` phải trả identity-confusion đúng, không rơi về câu đại cục chung chung.
+- `bac sinh nam bao nhieu` phải trả `19/5/1890`, không trả `5/6/1911`.
+- `chien dich dien bien phu vi sao thang` cho Võ Nguyên Giáp phải giữ `1954`/`đánh chắc tiến chắc`, không lạc sang trận khác.
+- Mock 429 phải stream fallback local và final có `llm_status=quota_exhausted`.
 
 ## Production
 

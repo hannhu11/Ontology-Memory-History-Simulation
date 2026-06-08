@@ -29,16 +29,21 @@ except ImportError:
     pass
 
 from character_registry import CHARACTER_REGISTRY, DEFAULT_CHARACTER_ID, get_character_config  # noqa: E402
-from llm_provider import clean_generated_answer, is_configured as llm_is_configured, stream_character_answer_chunks  # noqa: E402
+from llm_provider import (  # noqa: E402
+    GeminiCallError,
+    is_configured as llm_is_configured,
+    route_query_json,
+    stream_fused_generation,
+)
 from rag_core import (  # noqa: E402
     VectorRetriever,
     answer_query,
     compact_text,
-    is_generated_answer_acceptable,
     is_identity_query,
     is_legacy_afterlife_query,
     is_private_life_query,
     is_quang_trung_self_name_confusion,
+    local_route_query,
     load_chunks,
     load_profile,
     query_intents,
@@ -124,6 +129,31 @@ def visual_payload(
             "motion": "thinking" if character_id == "quang_trung" else "none",
             "asset": "thinking.png",
             "action": "loop" if character_id == "quang_trung" else "none",
+        }
+
+    route_intent = str((result.get("route") or {}).get("intent", ""))
+    if character_id == "quang_trung" and is_quang_trung_self_name_confusion(query, profile):
+        return {
+            "phase": phase,
+            "intent": "identity_confusion",
+            "emotion": "confused",
+            "baseEmotion": "confused",
+            "motion": "none",
+            "asset": "confused.png",
+            "action": "none",
+        }
+    if route_intent in {"birth", "origin", "real_name", "death", "identity", "smalltalk", "private_life"}:
+        intent = "identity" if route_intent in {"birth", "origin", "real_name", "death", "identity"} else route_intent
+        emotion = "idle"
+        asset = "idle.png"
+        return {
+            "phase": phase,
+            "intent": intent,
+            "emotion": emotion,
+            "baseEmotion": emotion,
+            "motion": "none",
+            "asset": asset,
+            "action": "none",
         }
 
     is_pre_1954_character = isinstance(death_year, int) and death_year < 1954
@@ -331,11 +361,14 @@ def characters() -> dict:
     return {"characters": payload, "default_character_id": DEFAULT_CHARACTER_ID}
 
 
-def should_stream_with_gemini(query: str, profile: dict, result: dict) -> bool:
+def should_stream_with_gemini(query: str, profile: dict, result: dict, route_llm_status: str) -> bool:
+    route_intent = str((result.get("route") or {}).get("intent", ""))
     return (
         llm_is_configured()
+        and route_llm_status not in {"quota_exhausted", "auth_error", "invalid_model", "not_configured"}
         and result.get("state") == "talking"
-        and result.get("mode") not in {"guardrail", "conversation"}
+        and result.get("mode") not in {"guardrail", "conversation", "factual"}
+        and route_intent not in {"smalltalk", "identity", "birth", "origin", "real_name", "death", "private_life", "anachronism_trap"}
         and not is_identity_query(query)
         and not is_private_life_query(query)
         and not is_legacy_afterlife_query(query, profile)
@@ -365,14 +398,34 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
             },
         )
 
-        result = answer_query(query, profile, retriever, generator=None)
+        router_response = route_query_json(query, profile) if llm_is_configured() else {
+            "ok": False,
+            "llm_status": "not_configured",
+            "route": None,
+        }
+        if router_response.get("ok") and router_response.get("route"):
+            route = router_response["route"]
+            route["source"] = "llm"
+            route_source = "llm"
+            route_llm_status = "ok"
+        else:
+            route = local_route_query(query, profile)
+            route_source = "deterministic"
+            route_llm_status = str(router_response.get("llm_status", "router_fallback"))
+        result = answer_query(query, profile, retriever, generator=None, route=route)
         citations = [public_citation(chunk) for chunk in result.get("citations", [])]
+        fallback_used = bool(result.get("fallback_used", False))
+        llm_status = route_llm_status
         yield sse_event(
             "retrieval",
             {
                 "mode": result.get("mode", "retrieval"),
                 "state": result.get("state", "talking"),
                 "citations": citations,
+                "route": route,
+                "route_source": route_source,
+                "llm_status": llm_status,
+                "fallback_used": fallback_used,
             },
         )
 
@@ -390,22 +443,28 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
             },
         )
 
-        if should_stream_with_gemini(query, profile, result):
+        if should_stream_with_gemini(query, profile, result, route_llm_status):
             collected: list[str] = []
-            for token in stream_character_answer_chunks(query, profile, result.get("citations", [])):
-                emitted_stream = True
-                collected.append(token)
-                yield sse_event("token", {"text": token})
-            raw_answer = "".join(collected).strip()
-            cleaned = clean_generated_answer(raw_answer, profile) if raw_answer else None
-            if cleaned and is_generated_answer_acceptable(query, cleaned):
-                final_answer = cleaned
-                mode = "api"
-            elif not emitted_stream:
+            try:
+                for token in stream_fused_generation(query, profile, result.get("citations", []), route=route):
+                    emitted_stream = True
+                    collected.append(token)
+                    yield sse_event("token", {"text": token})
+                raw_answer = "".join(collected).strip()
+                if raw_answer:
+                    final_answer = raw_answer
+                    mode = "api"
+                    llm_status = "ok"
+                    fallback_used = False
+            except GeminiCallError as exc:
+                llm_status = exc.kind
+                fallback_used = True
+            if not emitted_stream:
                 for token in tokenized_fallback(fallback_answer):
                     yield sse_event("token", {"text": token})
                 final_answer = fallback_answer
         else:
+            fallback_used = True
             for token in tokenized_fallback(fallback_answer):
                 yield sse_event("token", {"text": token})
 
@@ -416,6 +475,10 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 "mode": mode,
                 "state": result.get("state", "talking"),
                 "citations": citations,
+                "route": route,
+                "route_source": route_source,
+                "llm_status": llm_status,
+                "fallback_used": fallback_used,
                 "visual": visual_payload(query, final_answer, profile, {**result, "mode": mode}, citations, phase="answering"),
             },
         )

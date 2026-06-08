@@ -5,7 +5,11 @@ import json
 import math
 import os
 import re
+import shutil
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
@@ -20,6 +24,8 @@ DEFAULT_DATASET_DIR = ROOT_DIR.parent / "quang_trung_dataset"
 DEFAULT_INDEX_ROOT = ROOT_DIR / ".rag_index"
 DEFAULT_INDEX_DIR = DEFAULT_INDEX_ROOT / DEFAULT_CHARACTER_ID
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+DEFAULT_EMBEDDING_PROVIDER = "local"
+DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2-preview"
 DEFAULT_SCORE_THRESHOLD = 0.42
 DEFAULT_TOP_K = 4
 
@@ -317,17 +323,42 @@ INTENT_QUERY_TERMS = {
         "duong loi",
     },
     "life_milestone": {
+        "than the",
+        "tieu su",
+        "cuoc doi",
+        "su nghiep",
+    },
+    "departure": {
         "ra di tim duong cuu nuoc",
         "tim duong cuu nuoc",
         "ben nha rong",
         "nha rong",
         "ngay 5 6 1911",
         "5/6/1911",
-        "nam nao",
-        "que quan",
+    },
+    "birth": {
         "sinh nam",
-        "than the",
-        "tieu su",
+        "sinh ngay",
+        "nam sinh",
+        "ngay sinh",
+    },
+    "origin": {
+        "que quan",
+        "sinh o dau",
+        "sinh tai",
+        "nguoi o dau",
+    },
+    "death": {
+        "mat nam",
+        "nam mat",
+        "qua doi",
+        "ngay mat",
+    },
+    "real_name": {
+        "ten that",
+        "ten khai sinh",
+        "nguyen hue la gi",
+        "nguyen hue la ai",
     },
     "anachronism": {
         "the chien",
@@ -394,6 +425,15 @@ def configured_embedding_model() -> str:
     return os.getenv("RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip() or DEFAULT_EMBEDDING_MODEL
 
 
+def configured_embedding_provider() -> str:
+    provider = os.getenv("RAG_EMBEDDING_PROVIDER", DEFAULT_EMBEDDING_PROVIDER).strip().lower()
+    return provider if provider in {"local", "gemini"} else DEFAULT_EMBEDDING_PROVIDER
+
+
+def configured_gemini_embedding_model() -> str:
+    return os.getenv("RAG_GEMINI_EMBEDDING_MODEL", DEFAULT_GEMINI_EMBEDDING_MODEL).strip() or DEFAULT_GEMINI_EMBEDDING_MODEL
+
+
 def configured_index_dir(character_id: str = DEFAULT_CHARACTER_ID) -> Path:
     raw_value = os.getenv("RAG_INDEX_DIR")
     if not raw_value:
@@ -402,8 +442,79 @@ def configured_index_dir(character_id: str = DEFAULT_CHARACTER_ID) -> Path:
     return base if base.name == character_id else base / character_id
 
 
+def is_birth_query_text(normalized: str) -> bool:
+    return any(
+        has_phrase(normalized, phrase)
+        for phrase in (
+            "sinh nam bao nhieu",
+            "sinh ngay nao",
+            "sinh nam nao",
+            "sinh vao nam nao",
+            "nam sinh",
+            "ngay sinh",
+            "bao nhieu tuoi",
+        )
+    )
+
+
+def is_origin_query_text(normalized: str) -> bool:
+    return any(
+        has_phrase(normalized, phrase)
+        for phrase in (
+            "que o dau",
+            "que quan",
+            "sinh o dau",
+            "sinh tai dau",
+            "nguoi o dau",
+        )
+    )
+
+
+def is_death_query_text(normalized: str) -> bool:
+    return any(
+        has_phrase(normalized, phrase)
+        for phrase in (
+            "mat nam nao",
+            "mat khi nao",
+            "qua doi nam nao",
+            "nam mat",
+            "ngay mat",
+            "chet nam nao",
+        )
+    )
+
+
+def is_real_name_query_text(normalized: str) -> bool:
+    return any(
+        has_phrase(normalized, phrase)
+        for phrase in (
+            "ten that",
+            "ten khai sinh",
+            "ten day du",
+            "ten khac",
+            "ten cua bac",
+            "ten cua ong",
+            "ten cua ngai",
+            "bac ten gi",
+            "ong ten gi",
+            "ngai ten gi",
+            "nguoi ten gi",
+            "nguyen hue la gi",
+            "nguyen hue la ai",
+        )
+    )
+
+
 def query_intents(query: str) -> set[str]:
     normalized = normalize(query)
+    if is_birth_query_text(normalized):
+        return {"birth"}
+    if is_origin_query_text(normalized):
+        return {"origin"}
+    if is_death_query_text(normalized):
+        return {"death"}
+    if is_real_name_query_text(normalized):
+        return {"real_name"}
     intents = {
         intent
         for intent, terms in INTENT_QUERY_TERMS.items()
@@ -416,6 +527,10 @@ def query_intents(query: str) -> set[str]:
     for primary in (
         "anachronism",
         "private_life_sensitive",
+        "birth",
+        "origin",
+        "death",
+        "real_name",
         "capital_city",
         "administration",
         "coinage",
@@ -423,6 +538,7 @@ def query_intents(query: str) -> set[str]:
         "agriculture",
         "scholars",
         "diplomacy",
+        "departure",
         "life_milestone",
         "ideology",
         "military_doctrine",
@@ -442,6 +558,70 @@ def cached_embedding_model(model_name: str):
     return SentenceTransformer(model_name)
 
 
+class EmbeddingMatrix(list):
+    def tolist(self) -> list:
+        return list(self)
+
+
+class GeminiEmbeddingModel:
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+
+    def encode(self, texts: list[str], normalize_embeddings: bool = True) -> EmbeddingMatrix:
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is required for Gemini embeddings")
+        vectors = [self._embed(text) for text in texts]
+        if normalize_embeddings:
+            vectors = [normalize_vector(vector) for vector in vectors]
+        return EmbeddingMatrix(vectors)
+
+    def _embed(self, text: str) -> list[float]:
+        model = urllib.parse.quote(self.model_name, safe="")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent?key={api_key_for_url()}"
+        payload = {
+            "model": f"models/{self.model_name}",
+            "content": {"parts": [{"text": text[:18000]}]},
+            "taskType": "RETRIEVAL_DOCUMENT",
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request, timeout=30) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        return result.get("embedding", {}).get("values", [])
+
+
+def api_key_for_url() -> str:
+    return urllib.parse.quote(os.getenv("GEMINI_API_KEY", "").strip(), safe="")
+
+
+def normalize_vector(vector: list[float]) -> list[float]:
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm <= 0:
+        return vector
+    return [value / norm for value in vector]
+
+
+def embedding_dimension(embedding_model) -> int:
+    if hasattr(embedding_model, "get_sentence_embedding_dimension"):
+        dimension = embedding_model.get_sentence_embedding_dimension()
+        if dimension:
+            return int(dimension)
+    sample = encode_embeddings(embedding_model, ["dimension probe"])
+    return len(sample[0]) if sample else 0
+
+
+def encode_embeddings(embedding_model, texts: list[str]) -> list[list[float]]:
+    encoded = embedding_model.encode(texts, normalize_embeddings=True)
+    return encoded.tolist() if hasattr(encoded, "tolist") else list(encoded)
+
+
+def cached_embedding_backend(provider: str, model_name: str):
+    if provider == "gemini":
+        return GeminiEmbeddingModel(model_name)
+    return cached_embedding_model(model_name)
+
+
 def chunk_intents(chunk: dict) -> set[str]:
     intents = set(chunk.get("answer_intents") or []) | set(chunk.get("tags") or [])
     blob = normalize(
@@ -457,6 +637,8 @@ def chunk_intents(chunk: dict) -> set[str]:
     )
     if intents & {"micro_tactics", "military", "battle", "ngoc_hoi_dong_da", "rach_gam_xoai_mut"}:
         intents.add("battle_reflection")
+    if any(term in blob for term in ("than the", "tieu su", "cuoc doi", "su nghiep")):
+        intents.add("life_milestone")
     if any(
         term in blob
         for term in (
@@ -464,13 +646,49 @@ def chunk_intents(chunk: dict) -> set[str]:
             "tim duong cuu nuoc",
             "ben nha rong",
             "5/6/1911",
-            "1911",
-            "que quan",
-            "than the",
-            "tieu su",
+            "ngay 5 6 1911",
         )
     ):
+        intents.add("departure")
         intents.add("life_milestone")
+    if any(
+        term in blob
+        for term in (
+            "sinh nam",
+            "sinh ngay",
+            "nam sinh",
+            "ngay sinh",
+            "sinh tai",
+            "sinh ra",
+            "ten khai sinh",
+        )
+    ):
+        intents.add("birth")
+        intents.add("life_milestone")
+    if any(
+        term in blob
+        for term in (
+            "que quan",
+            "que o",
+            "sinh tai",
+            "loc thuy",
+            "le thuy",
+            "kim lien",
+            "nam dan",
+            "nam dinh",
+            "nhi khe",
+            "chi ngai",
+            "phu xuan",
+            "nghe an",
+        )
+    ):
+        intents.add("origin")
+        intents.add("life_milestone")
+    if any(term in blob for term in ("mat nam", "nam mat", "mat ngay", "qua doi", "died", "tu tran")):
+        intents.add("death")
+        intents.add("life_milestone")
+    if any(term in blob for term in ("ten that", "ten khai sinh", "real_name", "nguyen hue", "tran quoc tuan", "uc trai")):
+        intents.add("real_name")
     if any(
         term in blob
         for term in (
@@ -825,12 +1043,69 @@ def query_variants(query: str, profile: dict | None = None) -> list[str]:
                     "Trần Hưng Đạo Bạch Đằng 1288 binh pháp đoàn kết toàn dân",
                 ]
             )
-    elif "life_milestone" in intents:
+    elif "micro_tactics" in intents:
+        query_norm = normalize(query)
+        if character_id == "quang_trung" and any(term in query_norm for term in ("an tet", "30 thang chap", "mong 7")):
+            variants.extend(
+                [
+                    "Quang Trung cho quân ăn Tết trước cuối tháng Chạp Mậu Thân 1788 mồng 7 vào Thăng Long",
+                    "Ăn Tết trước giữ nhịp hành quân thần tốc tạo sĩ khí bất ngờ chiến lược",
+                    "Lời hẹn mồng 7 tháng Giêng vào Thăng Long mở tiệc lớn",
+                ]
+            )
+        elif character_id == "quang_trung" and any(term in query_norm for term in ("tuong binh", "voi chien", "ky binh")):
+            variants.extend(
+                [
+                    "Tây Sơn tượng binh voi chiến kỵ binh Thanh Ngọc Hồi hỏa hổ mộc rơm ướt",
+                    "Quang Trung dùng tượng binh phối hợp bộ binh hỏa khí phá kỵ binh Thanh",
+                ]
+            )
+    elif "birth" in intents:
+        if character_id == "ho_chi_minh":
+            variants.extend(
+                [
+                    "Hồ Chí Minh sinh ngày 19/5/1890 tại Kim Liên Nam Đàn Nghệ An",
+                    "Nguyễn Sinh Cung sinh năm 1890 quê Nghệ An",
+                ]
+            )
+        elif character_id == "vo_nguyen_giap":
+            variants.extend(
+                [
+                    "Võ Nguyên Giáp sinh năm 1911 tại Lộc Thủy Lệ Thủy Quảng Bình",
+                    "Đại tướng Võ Nguyên Giáp quê Lộc Thủy Quảng Bình sinh 1911",
+                ]
+            )
+        elif character_id == "nguyen_trai":
+            variants.append("Nguyễn Trãi sinh năm 1380 quê Chi Ngại Nhị Khê Ức Trai")
+        elif character_id == "tran_hung_dao":
+            variants.append("Trần Hưng Đạo Trần Quốc Tuấn sinh khoảng năm 1228 tại Nam Định")
+        elif character_id == "quang_trung":
+            variants.append("Quang Trung Nguyễn Huệ sinh năm 1753 Tây Sơn")
+    elif "origin" in intents:
+        if character_id == "ho_chi_minh":
+            variants.append("Hồ Chí Minh quê Kim Liên Nam Đàn Nghệ An Nguyễn Sinh Cung")
+        elif character_id == "vo_nguyen_giap":
+            variants.append("Võ Nguyên Giáp quê Lộc Thủy Lệ Thủy Quảng Bình")
+        elif character_id == "nguyen_trai":
+            variants.append("Nguyễn Trãi quê Chi Ngại Hải Dương Nhị Khê Hà Nội")
+        elif character_id == "tran_hung_dao":
+            variants.append("Trần Hưng Đạo Trần Quốc Tuấn sinh tại Nam Định Vạn Kiếp")
+        elif character_id == "quang_trung":
+            variants.append("Nguyễn Huệ Quang Trung Tây Sơn Phú Xuân Nghệ An")
+    elif "departure" in intents:
         if character_id == "ho_chi_minh":
             variants.extend(
                 [
                     "Hồ Chí Minh Nguyễn Tất Thành ra đi tìm đường cứu nước ngày 5/6/1911 bến Nhà Rồng tàu Amiral Latouche-Tréville",
                     "Hồ Chí Minh Bến Nhà Rồng năm 1911 hành trình tìm đường cứu nước",
+                ]
+            )
+    elif "life_milestone" in intents:
+        if character_id == "ho_chi_minh":
+            variants.extend(
+                [
+                    "Hồ Chí Minh Nguyễn Sinh Cung Nguyễn Tất Thành tiểu sử thân thế sự nghiệp",
+                    "Hồ Chí Minh quê Nghệ An sinh năm 1890 hoạt động cách mạng",
                 ]
             )
         elif character_id == "vo_nguyen_giap":
@@ -1269,7 +1544,10 @@ class VectorRetriever:
         self.chunks = list(chunks)
         self.character_id = character_id
         self.persist_dir = Path(persist_dir) if persist_dir else configured_index_dir(character_id)
-        self.model_name = model_name or configured_embedding_model()
+        self.embedding_provider = configured_embedding_provider()
+        self.model_name = model_name or (
+            configured_gemini_embedding_model() if self.embedding_provider == "gemini" else configured_embedding_model()
+        )
         self.score_threshold = score_threshold if score_threshold is not None else configured_score_threshold()
         self._fallback = SimpleRetriever(self.chunks)
         self._backend = "simple"
@@ -1306,6 +1584,16 @@ class VectorRetriever:
             ]
         )
 
+    def _safe_wipe_index_dir(self) -> None:
+        if self.persist_dir.name != self.character_id:
+            return
+        if self.persist_dir.exists():
+            shutil.rmtree(self.persist_dir)
+
+    def _index_metadata_changed(self, previous: dict, current: dict) -> bool:
+        keys = ("fingerprint", "embedding_provider", "model_name", "dimension", "character_id")
+        return any(previous.get(key) != current.get(key) for key in keys)
+
     def _init_vector_backend(self) -> None:
         try:
             import chromadb
@@ -1313,25 +1601,38 @@ class VectorRetriever:
             return
 
         try:
-            self.persist_dir.mkdir(parents=True, exist_ok=True)
-            client = chromadb.PersistentClient(path=str(self.persist_dir))
-            collection = client.get_or_create_collection(
-                name=self.character_id,
-                metadata={"hnsw:space": "cosine"},
-            )
             fingerprint = self._dataset_fingerprint()
             metadata_path = self.persist_dir / "metadata.json"
             previous = {}
             if metadata_path.exists():
                 previous = json.loads(metadata_path.read_text(encoding="utf-8"))
-            embedding_model = cached_embedding_model(self.model_name)
-            if previous.get("fingerprint") != fingerprint or previous.get("model_name") != self.model_name:
+            elif self.persist_dir.exists() and any(self.persist_dir.iterdir()):
+                self._safe_wipe_index_dir()
+            embedding_model = cached_embedding_backend(self.embedding_provider, self.model_name)
+            dimension = embedding_dimension(embedding_model)
+            current_metadata = {
+                "fingerprint": fingerprint,
+                "embedding_provider": self.embedding_provider,
+                "model_name": self.model_name,
+                "dimension": dimension,
+                "character_id": self.character_id,
+            }
+            if previous and self._index_metadata_changed(previous, current_metadata):
+                self._safe_wipe_index_dir()
+            self.persist_dir.mkdir(parents=True, exist_ok=True)
+            metadata_path = self.persist_dir / "metadata.json"
+            client = chromadb.PersistentClient(path=str(self.persist_dir))
+            collection = client.get_or_create_collection(
+                name=self.character_id,
+                metadata={"hnsw:space": "cosine"},
+            )
+            if self._index_metadata_changed(previous, current_metadata):
                 existing = collection.get(include=[])
                 existing_ids = existing.get("ids", [])
                 if existing_ids:
                     collection.delete(ids=existing_ids)
                 documents = [self._embedding_text(chunk) for chunk in self.chunks]
-                embeddings = embedding_model.encode(documents, normalize_embeddings=True).tolist()
+                embeddings = encode_embeddings(embedding_model, documents)
                 ids = [chunk["chunk_id"] for chunk in self.chunks]
                 metadatas = [
                     {
@@ -1346,7 +1647,7 @@ class VectorRetriever:
                 ]
                 collection.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
                 metadata_path.write_text(
-                    json.dumps({"fingerprint": fingerprint, "model_name": self.model_name}, ensure_ascii=False, indent=2),
+                    json.dumps(current_metadata, ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
             self._collection = collection
@@ -1360,7 +1661,7 @@ class VectorRetriever:
     def _search_vector_single(self, query: str, top_k: int = DEFAULT_TOP_K) -> list[Hit]:
         intents = query_intents(query)
         query_norm = normalize(query)
-        query_embedding = self._embedding_model.encode([query], normalize_embeddings=True).tolist()[0]
+        query_embedding = encode_embeddings(self._embedding_model, [query])[0]
         result = self._collection.query(
             query_embeddings=[query_embedding],
             n_results=min(max(top_k * 6, top_k), len(self.chunks)),
@@ -1473,6 +1774,8 @@ def is_unsupported_claim(query: str) -> bool:
 def has_uncovered_year_claim(query: str, hits: list[Hit]) -> bool:
     if is_anachronistic_warfare_query(query) or is_diplomacy_query(query):
         return False
+    if query_intents(query) & {"battle_reflection", "micro_tactics", "military", "military_doctrine"}:
+        return False
     normalized = normalize(query)
     years = re.findall(r"\b(17\d{2})\b", normalized)
     if not years:
@@ -1549,6 +1852,46 @@ def self_names_for(profile: dict) -> list[str]:
     names = [metadata.get("name", ""), metadata.get("full_name", "")]
     names.extend(metadata.get("aliases", []))
     return [name for name in dict.fromkeys(names) if name]
+
+
+def local_route_query(query: str, profile: dict) -> dict:
+    normalized = normalize(query)
+    metadata = profile["character_metadata"]
+    intent = "history_fact"
+    needs_rag = True
+    optimized_search_query = query
+    confidence = 0.62
+
+    if is_pure_smalltalk_query(query):
+        intent, needs_rag, optimized_search_query, confidence = "smalltalk", False, "", 0.88
+    elif is_private_life_query(query):
+        intent, needs_rag, optimized_search_query, confidence = "private_life", False, "", 0.82
+    elif is_anachronistic_warfare_query(query) or is_out_of_period(query, metadata["death_year"], profile):
+        intent, needs_rag, optimized_search_query, confidence = "anachronism_trap", False, "", 0.86
+    elif is_quang_trung_self_name_confusion(query, profile) or is_identity_query(query):
+        intent, needs_rag, optimized_search_query, confidence = "identity", False, "", 0.82
+    elif is_birth_query_text(normalized):
+        intent, needs_rag, optimized_search_query, confidence = "birth", False, "", 0.95
+    elif is_origin_query_text(normalized):
+        intent, needs_rag, optimized_search_query, confidence = "origin", False, "", 0.92
+    elif is_death_query_text(normalized):
+        intent, needs_rag, optimized_search_query, confidence = "death", False, "", 0.9
+    elif is_real_name_query_text(normalized):
+        intent, needs_rag, optimized_search_query, confidence = "real_name", False, "", 0.9
+    elif is_unsupported_claim(query):
+        intent, needs_rag, optimized_search_query, confidence = "anachronism_trap", False, "", 0.8
+    elif query_intents(query) & {"ideology", "military_doctrine"}:
+        intent, optimized_search_query, confidence = "philosophy", rewrite_query(query, profile), 0.72
+    elif query_intents(query) & {"battle_reflection", "micro_tactics", "military"}:
+        intent, optimized_search_query, confidence = "history_battle", rewrite_query(query, profile), 0.74
+
+    return {
+        "intent": intent,
+        "needs_rag": needs_rag,
+        "optimized_search_query": optimized_search_query,
+        "confidence": confidence,
+        "source": "deterministic",
+    }
 
 
 def persona_fact(fact: str, profile: dict) -> str:
@@ -1648,8 +1991,6 @@ def build_broad_persona_answer(query: str, profile: dict, hits: list[Hit]) -> st
     character_id = profile_character_id(profile)
     facts = persona_facts(hits, profile, limit=3)
     if facts:
-        if character_id == "ho_chi_minh" and "life_milestone" in query_intents(query):
-            facts = [fact for fact in facts if "1911" in fact or "Bến Nhà Rồng" in fact][:1] or facts[:1]
         if character_id == "ho_chi_minh":
             return "Bác nói ngắn gọn thế này: " + " ".join(facts)
         if character_id == "vo_nguyen_giap":
@@ -1732,10 +2073,218 @@ def build_identity_answer(profile: dict, hits: list[Hit]) -> str:
     return f"{pronoun.capitalize()} là {name}, sống trong thời {era}. Nếu muốn hiểu đời {pronoun}, hãy hỏi vào sự nghiệp, tư tưởng và những việc lớn đã gắn với vận nước."
 
 
+FACTUAL_ANSWER_BANK = {
+    "quang_trung": {
+        "birth": "Ta sinh năm 1753. Tên thật của ta là Nguyễn Huệ; Quang Trung là niên hiệu khi ta lên ngôi hoàng đế Tây Sơn. Muốn hiểu đời ta, hãy nhìn vào sự nghiệp dẹp loạn, đánh quân Xiêm ở Rạch Gầm - Xoài Mút và đại phá quân Thanh ở Ngọc Hồi - Đống Đa.",
+        "origin": "Ta xuất thân từ phong trào Tây Sơn, gắn với đất Bình Định và cuộc biến động cuối thế kỷ XVIII. Đời cầm quân của ta sau đó trải qua Phú Xuân, Nghệ An, Thăng Long và các chiến trường Nam - Bắc.",
+        "real_name": "Nguyễn Huệ chính là tên thật của ta. Quang Trung là niên hiệu hoàng đế, Bắc Bình Vương là tước hiệu trước khi lên ngôi; đó không phải là những người khác nhau.",
+        "identity": "Nguyễn Huệ chính là ta; Quang Trung là niên hiệu khi ta lên ngôi, không phải hai người và cũng không phải anh em. Nếu hỏi hai tên ấy là gì của nhau, thì phải nói cho đúng: một là tên người, một là niên hiệu của cùng một con người trong lịch sử Tây Sơn.",
+        "death": "Ta mất năm 1792, khi nhiều dự định trị nước và canh tân còn dang dở. Vì vậy khi hỏi chuyện sau năm ấy, chớ gán thành ký ức trực tiếp của ta.",
+    },
+    "ho_chi_minh": {
+        "birth": "Bác sinh ngày 19/5/1890, tại quê hương Nghệ An. Tên khai sinh của Bác là Nguyễn Sinh Cung; về sau trong các chặng đường hoạt động cách mạng, Bác còn mang các tên Nguyễn Tất Thành, Nguyễn Ái Quốc, Văn Ba và Hồ Chí Minh.",
+        "origin": "Quê Bác ở Kim Liên, Nam Đàn, Nghệ An; đó là mảnh đất giàu truyền thống yêu nước và hiếu học. Từ quê hương ấy, Bác lớn lên trong cảnh nước mất nhà tan, rồi đi nhiều nơi để tìm con đường cứu nước cho dân tộc.",
+        "real_name": "Tên khai sinh của Bác là Nguyễn Sinh Cung. Khi lớn lên và hoạt động cách mạng, Bác từng mang tên Nguyễn Tất Thành, Nguyễn Ái Quốc, Văn Ba; Hồ Chí Minh là tên gắn với chặng đường lãnh đạo cách mạng Việt Nam.",
+        "identity": "Bác là Hồ Chí Minh, người Việt Nam yêu nước đã dành đời mình cho độc lập của Tổ quốc và tự do, hạnh phúc của nhân dân. Những tên Nguyễn Sinh Cung, Nguyễn Tất Thành, Nguyễn Ái Quốc, Văn Ba là các tên gắn với những chặng đường khác nhau của cùng một con người.",
+        "death": "Bác đi xa ngày 2/9/1969. Điều Bác căn dặn trong Di chúc vẫn xoay quanh một việc lớn: giữ đoàn kết, chăm lo nhân dân, bồi dưỡng thế hệ sau và tiếp tục xây dựng nước Việt Nam độc lập, thống nhất.",
+    },
+    "tran_hung_dao": {
+        "birth": "Ta sinh khoảng năm 1228. Tên thật là Trần Quốc Tuấn, về sau được tôn là Hưng Đạo Đại Vương vì công lao chống quân Nguyên Mông và giữ nước Đại Việt.",
+        "origin": "Ta là người họ Trần, gắn với vùng Nam Định và Vạn Kiếp. Xuất thân vương thất nhưng điều ta đặt lên trên hết không phải thù riêng dòng họ, mà là vận nước Đại Việt.",
+        "real_name": "Tên thật của ta là Trần Quốc Tuấn. Trần Hưng Đạo hay Hưng Đạo Đại Vương là tước hiệu, danh xưng đời sau kính gọi vì công lao giữ nước.",
+        "identity": "Ta là Trần Quốc Tuấn, người đời thường gọi Trần Hưng Đạo hoặc Hưng Đạo Đại Vương. Những danh xưng ấy chỉ về cùng một người, không phải các nhân vật khác nhau.",
+        "death": "Ta mất năm 1300 tại Vạn Kiếp. Trước khi mất, điều ta căn dặn vẫn là khoan thư sức dân để làm kế sâu rễ bền gốc, vì giữ nước phải giữ từ lòng dân.",
+    },
+    "nguyen_trai": {
+        "birth": "Ta sinh năm 1380. Hiệu là Ức Trai; đời ta gắn với vận nước từ cuối Trần, Hồ đến khởi nghĩa Lam Sơn và triều Hậu Lê.",
+        "origin": "Quê quán của ta gắn với Chi Ngại ở Hải Dương và Nhị Khê ở Hà Nội. Dù ở nơi nào, điều ta giữ trong lòng vẫn là đạo nhân nghĩa, yên dân và mối lo cho xã tắc.",
+        "real_name": "Tên ta là Nguyễn Trãi, hiệu Ức Trai. Khi người đời gọi Ức Trai, đó là gọi hiệu của ta, không phải một người khác.",
+        "identity": "Ta là Nguyễn Trãi, hiệu Ức Trai, một kẻ sĩ đã theo Lê Lợi trong khởi nghĩa Lam Sơn và dùng văn chương, mưu lược để góp phần dựng lại nền độc lập Đại Việt.",
+        "death": "Ta mất năm 1442 trong vụ án Lệ Chi Viên, một nỗi oan lớn của lịch sử. Khi xét đời ta, xin nhìn cả công lao với Lam Sơn, Bình Ngô đại cáo, tư tưởng nhân nghĩa và bi kịch cuối đời.",
+    },
+    "vo_nguyen_giap": {
+        "birth": "Tôi sinh ngày 25/8/1911 tại xã Lộc Thủy, huyện Lệ Thủy, tỉnh Quảng Bình. Từ một thầy giáo dạy sử, tôi đi vào con đường cách mạng và quân sự vì độc lập của Tổ quốc.",
+        "origin": "Tôi quê ở Lộc Thủy, Lệ Thủy, Quảng Bình. Mảnh đất ấy cho tôi hiểu rất sớm thế nào là lòng yêu nước, ý chí học tập và trách nhiệm với nhân dân.",
+        "real_name": "Tên tôi là Võ Nguyên Giáp. Những cách gọi như Tướng Giáp, Đại tướng Võ Nguyên Giáp đều chỉ cùng một người trong các vai trò khác nhau của đời hoạt động cách mạng và quân sự.",
+        "identity": "Tôi là Võ Nguyên Giáp, người được giao chỉ huy nhiều chiến dịch lớn trong kháng chiến, trong đó có Điện Biên Phủ năm 1954. Điều quan trọng nhất không phải tên tuổi cá nhân, mà là thắng lợi của toàn dân, toàn quân.",
+        "death": "Tôi qua đời năm 2013. Nhìn lại đời mình, điều lớn nhất vẫn là được phục vụ Tổ quốc, nhân dân và sự nghiệp độc lập dân tộc.",
+    },
+}
+
+
+LOCAL_FALLBACK_BANK = {
+    "quang_trung": {
+        "smalltalk": "Ta đang nghe. Nếu muốn hỏi cho ra điều, hãy hỏi thẳng về thân thế, việc cầm quân, Ngọc Hồi - Đống Đa, Rạch Gầm - Xoài Mút hoặc phép trị nước của Tây Sơn.",
+        "history_battle": "Nếu hỏi việc binh, ta nói trước hết phải xét thời cơ, địa thế và lòng quân. Ở Rạch Gầm - Xoài Mút, ta chọn đúng khúc sông để khóa đầu chặn đuôi quân Xiêm. Ở Ngọc Hồi - Đống Đa, ta lấy thần tốc, chia mũi và đánh vào chỗ quân Thanh chủ quan để giải phóng Thăng Long.",
+        "philosophy": "Ta trị nước không chỉ bằng gươm giáo. Sau khi dẹp giặc, việc lớn là gom lòng người, khuyến nông, trọng học, dùng người có tài và đặt phép nước cho yên dân. Quân mạnh mà dân rã thì thế nước không bền.",
+        "anachronism_trap": "Việc ấy thuộc đời sau, không nằm trong thời ta. Nếu muốn hiểu cách ta kêu gọi quân sĩ, hãy nhìn lời phủ dụ, cuộc duyệt binh ở Nghệ An và khí thế hành quân ra Bắc, chớ đem Internet hay Facebook gán vào thế kỷ XVIII.",
+        "private_life": "Chuyện riêng của ta không phải thứ để hỏi như lời đồn. Nếu muốn hiểu con người ta, hãy nhìn những quyết định trước vận nước: đánh giặc, dùng người, giữ dân và dựng phép trị.",
+    },
+    "ho_chi_minh": {
+        "smalltalk": "Bác đang nghe. Các cháu cứ hỏi về thân thế, con đường cứu nước, tư tưởng độc lập tự do, Cách mạng Tháng Tám, Điện Biên Phủ hoặc những lời căn dặn với thế hệ sau.",
+        "history_battle": "Bác không nhận chiến thắng nào là của riêng một người. Điện Biên Phủ năm 1954 là thắng lợi của toàn dân, toàn quân sau chín năm kháng chiến chống thực dân Pháp. Thắng lợi ấy buộc đối phương phải ngồi vào bàn đàm phán và công nhận quyền độc lập của dân tộc Việt Nam.",
+        "philosophy": "Điều Bác coi là cốt lõi là độc lập cho dân tộc, tự do và hạnh phúc cho nhân dân. Nước độc lập mà dân còn đói, còn dốt, còn không được làm chủ thì độc lập ấy chưa trọn. Vì vậy cách mạng phải dựa vào dân, đoàn kết dân và giữ đạo đức trong sáng.",
+        "anachronism_trap": "Facebook, Internet hay những công cụ đời sau không thuộc thời Bác. Thời Bác, việc tuyên truyền dựa vào báo chí, truyền đơn, nói chuyện trực tiếp, tổ chức quần chúng và quan trọng nhất là nói thật điều dân cần nghe.",
+        "private_life": "Chuyện riêng của Bác không nên biến thành chuyện đồn đoán. Điều Bác có thể nói rõ là cả đời mình đặt độc lập của nước, tự do của dân và hạnh phúc của đồng bào lên trước hết.",
+    },
+    "tran_hung_dao": {
+        "smalltalk": "Ta đang nghe. Ngươi cứ hỏi về Bạch Đằng, Hịch tướng sĩ, khoan thư sức dân, binh pháp hoặc ba lần kháng chiến chống Nguyên Mông.",
+        "history_battle": "Đánh giặc mạnh phải biết tránh sở trường của nó và buộc nó vào địa thế của ta. Ở Bạch Đằng năm 1288, ta dùng thủy triều, bãi cọc và kế nhử địch để phá thủy quân Ô Mã Nhi. Thắng lợi ấy là thắng lợi của địa lợi, kỷ luật và lòng dân Đại Việt.",
+        "philosophy": "Giữ nước không chỉ nhờ quân sắc bén. Cái gốc là khoan thư sức dân, làm cho dân còn sức, còn lòng mà bảo vệ xã tắc. Dân là gốc sâu rễ bền; mất dân thì thành cao hào sâu cũng vô ích.",
+        "anachronism_trap": "Điều ấy thuộc đời sau, vượt ngoài thời ta. Ta chỉ có thể bàn việc quân Nguyên Mông, lòng dân Đại Việt, binh thư và phép giữ nước của thế kỷ XIII.",
+        "private_life": "Chuyện gia thất không phải điều nên đem ra làm lời đồn. Điều đáng hỏi là vì sao ta đặt vận nước lên trên thù riêng dòng họ và giữ lòng trung nghĩa đến cùng.",
+    },
+    "nguyen_trai": {
+        "smalltalk": "Ta đang nghe. Người hãy hỏi về nhân nghĩa, Bình Ngô đại cáo, mưu phạt tâm công, Lam Sơn, Dư địa chí hoặc nỗi oan Lệ Chi Viên.",
+        "history_battle": "Trong khởi nghĩa Lam Sơn, chiến thắng không chỉ nhờ gươm giáo mà còn nhờ biết đánh vào lòng người. Khi giặc Minh đã suy, ta dùng thư từ, lý lẽ và thế trận để làm chúng mất ý chí, mở đường cho hòa hiếu sau chiến tranh.",
+        "philosophy": "Việc nhân nghĩa cốt ở yên dân. Đánh giặc là để trừ bạo, nhưng dựng nước phải làm cho dân được sống yên, có văn hiến, phong tục, bờ cõi và lòng người riêng. Dân yên thì nước mới bền.",
+        "anachronism_trap": "Điều ấy ở ngoài thời ta. Ta không thể nhận biết những vật như AI hay mạng xã hội; nếu muốn bàn đạo nhân nghĩa, hãy trở về với dân, với nước và trách nhiệm của người cầm bút.",
+        "private_life": "Chuyện riêng của ta không nên biến thành lời đồn. Nếu hỏi để hiểu con người, hãy nhìn nỗi ưu tư vì dân, vì nước, cùng những oan khuất mà một kẻ sĩ phải chịu trong thời thế nhiễu nhương.",
+    },
+    "vo_nguyen_giap": {
+        "smalltalk": "Tôi đang nghe. Đồng chí cứ hỏi về Điện Biên Phủ, đánh chắc tiến chắc, chiến tranh nhân dân, hậu cần, tổ chức lực lượng hoặc đời hoạt động cách mạng.",
+        "history_battle": "Điện Biên Phủ năm 1954 thắng vì ta biết chuyển từ đánh nhanh thắng nhanh sang đánh chắc tiến chắc khi điều kiện chưa bảo đảm chắc thắng. Quyết định ấy khó khăn, nhưng đúng: phải kéo pháo ra, chuẩn bị lại trận địa, tổ chức hậu cần, bao vây, đào hào và làm cho tập đoàn cứ điểm mạnh về hỏa lực bị cô lập từng bước.",
+        "philosophy": "Theo tôi, chiến tranh nhân dân là sức mạnh tổng hợp của toàn dân dưới một mục tiêu chính trị đúng đắn. Người chỉ huy phải nhìn cả chính trị, hậu phương, hậu cần, tinh thần chiến sĩ, địa hình và thời cơ; không được lấy ý chí thay cho thực tế chiến trường.",
+        "anachronism_trap": "AI và mạng xã hội là công cụ của thời sau. Nếu nói theo nguyên tắc chỉ huy, dù công cụ nào cũng không thay được việc nắm thực tế, kiểm chứng thông tin, chịu trách nhiệm trước chiến sĩ và đặt lợi ích Tổ quốc lên trên hết.",
+        "private_life": "Chuyện gia đình là phần riêng của đời tôi, nhưng chiến tranh cũng để lại nhiều mất mát rất thật. Chính vì hiểu giá trị của sinh mạng, người cầm quân càng phải cân nhắc từng quyết định để giảm tổn thất và giành thắng lợi cần thiết.",
+    },
+}
+
+
+def build_factual_answer(query: str, profile: dict, intent: str, hits: list[Hit] | None = None) -> str:
+    character_id = profile_character_id(profile)
+    bank = FACTUAL_ANSWER_BANK.get(character_id, {})
+    if character_id == "quang_trung" and intent == "identity" and not is_quang_trung_self_name_confusion(query, profile):
+        return (
+            "Ta là hoàng đế của triều Tây Sơn, sống vào cuối thế kỷ XVIII. Ta cầm quân trong buổi đất nước rối ren, "
+            "từng đánh tan liên quân Xiêm - Nguyễn ở Rạch Gầm - Xoài Mút năm 1785, rồi lên ngôi năm 1788 để thống lĩnh "
+            "quân dân ra Bắc đại phá quân Thanh trong chiến dịch Ngọc Hồi - Đống Đa mùa xuân Kỷ Dậu 1789."
+        )
+    if intent in {"identity", "real_name"}:
+        return bank.get(intent) or bank.get("identity") or build_identity_answer(profile, hits or [])
+    if intent in bank:
+        return bank[intent]
+    return build_identity_answer(profile, hits or [])
+
+
+def build_local_fallback_answer(query: str, profile: dict, intent: str, hits: list[Hit] | None = None) -> str:
+    character_id = profile_character_id(profile)
+    if intent in {"birth", "origin", "real_name", "death", "identity"}:
+        return build_factual_answer(query, profile, intent, hits)
+    if intent == "private_life":
+        return build_private_life_answer(query, profile)
+    if intent == "anachronism_trap":
+        return LOCAL_FALLBACK_BANK.get(character_id, {}).get(intent) or build_afterlife_answer(query, profile)
+    if intent == "philosophy":
+        return LOCAL_FALLBACK_BANK.get(character_id, {}).get(intent) or build_ideology_answer(query, profile, hits or [])
+    if intent in {"history_battle", "history_fact"}:
+        fallback = LOCAL_FALLBACK_BANK.get(character_id, {}).get("history_battle")
+        if fallback:
+            return fallback
+    if intent == "smalltalk":
+        fallback = LOCAL_FALLBACK_BANK.get(character_id, {}).get("smalltalk")
+        if fallback:
+            return fallback
+    return build_broad_persona_answer(query, profile, hits or [])
+
+
+def select_factual_hits(intent: str, profile: dict, retriever: SimpleRetriever, top_k: int = DEFAULT_TOP_K) -> list[Hit]:
+    character_id = profile_character_id(profile)
+    metadata = profile["character_metadata"]
+    anchors = set()
+    if intent == "birth":
+        birth_year = metadata.get("birth_year", profile.get("birth_year"))
+        if birth_year:
+            anchors.add(str(birth_year))
+        anchors.update(("sinh", "nam sinh", "ngay sinh", "ten khai sinh"))
+        if character_id == "ho_chi_minh":
+            anchors.update(("19/5/1890", "1890", "nguyen sinh cung"))
+    elif intent == "origin":
+        anchors.update(("que", "que quan", "sinh tai", "loc thuy", "le thuy", "kim lien", "nam dan", "nam dinh", "nhi khe", "chi ngai", "nghe an"))
+    elif intent in {"identity", "real_name"}:
+        anchors.update(normalize(name) for name in self_names_for(profile))
+        anchors.update(("ten that", "ten khai sinh", "identity", "profile"))
+    elif intent == "death":
+        death_year = metadata.get("death_year", profile.get("death_year"))
+        if death_year:
+            anchors.add(str(death_year))
+        anchors.update(("mat", "qua doi", "nam mat", "ngay mat"))
+
+    hits: list[Hit] = []
+    for chunk in getattr(retriever, "chunks", []):
+        blob = normalize(
+            " ".join(
+                [
+                    chunk.get("topic_title", ""),
+                    chunk.get("fact", ""),
+                    chunk.get("text", ""),
+                    " ".join(chunk.get("tags", [])),
+                    " ".join(chunk.get("answer_intents", [])),
+                ]
+            )
+        )
+        doc_intents = chunk_intents(chunk)
+        score = source_quality_boost(chunk)
+        if intent in doc_intents or (intent == "identity" and doc_intents & {"real_name", "profile", "identity"}):
+            score += 0.55
+        score += 0.12 * sum(1 for anchor in anchors if anchor and anchor in blob)
+        if score > 0.15:
+            hits.append(Hit(chunk, min(score, 1.0)))
+    return sorted(hits, key=lambda hit: hit.score, reverse=True)[:top_k]
+
+
+def select_intent_hits(query: str, retriever: SimpleRetriever, intent: str, top_k: int = DEFAULT_TOP_K) -> list[Hit]:
+    query_norm = normalize(query)
+    anchor_terms: dict[str, tuple[str, ...]] = {
+        "micro_tactics": (
+            "an tet",
+            "tet_strategy",
+            "30 thang chap",
+            "mong 7",
+            "tuong binh",
+            "voi chien",
+            "ky binh",
+            "moc rom",
+            "hoa ho",
+        ),
+        "administration": ("tin bai", "giay to tuy than", "thien ha dai tin", "so dinh", "nhan khau"),
+        "education": ("chieu lap hoc", "sung chinh", "nha hoc", "chu nom", "dich sach"),
+        "scholars": ("ngo thi nham", "nguyen thiep", "la son phu tu", "chieu cau hien"),
+    }
+    anchors = anchor_terms.get(intent, ())
+    hits: list[Hit] = []
+    for chunk in getattr(retriever, "chunks", []):
+        doc_intents = chunk_intents(chunk)
+        if intent not in doc_intents:
+            continue
+        blob = normalize(
+            " ".join(
+                [
+                    chunk.get("topic_title", ""),
+                    chunk.get("fact", ""),
+                    chunk.get("text", ""),
+                    " ".join(chunk.get("tags", [])),
+                    " ".join(chunk.get("answer_intents", [])),
+                    " ".join(chunk.get("canonical_questions", [])),
+                ]
+            )
+        )
+        score = 0.45 + source_quality_boost(chunk)
+        score += 0.18 * sum(1 for anchor in anchors if anchor in query_norm and anchor in blob)
+        score += 0.06 * sum(1 for anchor in anchors if anchor in blob)
+        if score > 0.45:
+            hits.append(Hit(chunk, min(score, 1.0)))
+    return sorted(hits, key=lambda hit: hit.score, reverse=True)[:top_k]
+
+
 def build_generic_character_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
     metadata = profile["character_metadata"]
     pronoun = first_person_for(profile)
     listener = listener_for(profile)
+    intents = query_intents(query)
+    factual_intents = intents & {"birth", "origin", "real_name", "death"}
+    if factual_intents:
+        return build_factual_answer(query, profile, next(iter(factual_intents)), hits), "talking"
     if is_anachronistic_warfare_query(query) or is_out_of_period(query, metadata["death_year"], profile):
         return build_afterlife_answer(query, profile), "confused"
     if is_unsupported_claim(query):
@@ -1765,11 +2314,13 @@ def build_generic_character_answer(query: str, profile: dict, hits: list[Hit]) -
     if profile_character_id(profile) == "tran_hung_dao" and is_tran_hung_dao_bach_dang_query(query):
         return build_bach_dang_answer(profile, hits), "talking"
     if hits:
-        if query_intents(query) & {"ideology", "military_doctrine"}:
+        if intents & {"ideology", "military_doctrine"}:
             return build_ideology_answer(query, profile, hits), "talking"
         facts = persona_facts(hits, profile, limit=3)
         if facts:
             return build_broad_persona_answer(query, profile, hits), "talking"
+    if intents & {"ideology", "military_doctrine"}:
+        return build_local_fallback_answer(query, profile, "philosophy", hits), "talking"
     traits = ", ".join(metadata.get("personality_traits", [])[:3]) or "trách nhiệm với dân nước"
     return build_broad_persona_answer(query, profile, hits), "talking"
 
@@ -1779,6 +2330,10 @@ def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
     if profile_character_id(profile) != DEFAULT_CHARACTER_ID:
         return build_generic_character_answer(query, profile, hits)
     query_norm = normalize(query)
+    intents = query_intents(query)
+    factual_intents = intents & {"birth", "origin", "real_name", "death"}
+    if factual_intents:
+        return build_factual_answer(query, profile, next(iter(factual_intents)), hits), "talking"
     if is_anachronistic_warfare_query(query):
         answer = (
             "Năm Kỷ Dậu 1789 là việc có thật trong đời ta, nhưng đem chiến dịch ấy gán cho Blitzkrieg "
@@ -1822,7 +2377,6 @@ def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
         )
         return answer, "talking"
 
-    intents = query_intents(query)
     if "capital_city" in intents:
         if any(term in query_norm for term in ("qua trinh", "dap thanh", "vat tu", "tho thuyen", "go da", "gach ngoi", "da ong")):
             answer = (
@@ -2000,74 +2554,76 @@ def answer_query(
     retriever: SimpleRetriever,
     top_k: int = DEFAULT_TOP_K,
     generator: Callable[[str, dict, list[dict]], str | None] | None = None,
+    route: dict | None = None,
+    search_query: str | None = None,
 ) -> dict:
     top_k = configured_top_k(top_k)
     metadata = profile["character_metadata"]
-    if is_pure_smalltalk_query(query):
-        answer, state = build_answer(query, profile, [])
+    route = dict(route or local_route_query(query, profile))
+    route.setdefault("source", "deterministic")
+    route_intent = str(route.get("intent") or "history_fact")
+    needs_rag = bool(route.get("needs_rag", True))
+
+    def result_payload(answer: str, state: str, citations: list[dict], mode: str) -> dict:
         return {
             "answer": answer,
             "state": state,
-            "citations": [],
-            "mode": "conversation",
+            "citations": citations,
+            "mode": mode,
+            "route": route,
+            "route_source": route.get("source", "deterministic"),
+            "fallback_used": mode in {"conversation", "guardrail", "factual"},
         }
 
-    if is_anachronistic_warfare_query(query):
-        answer, state = build_answer(query, profile, [])
-        guardrail_chunks = [chunk for chunk in retriever.chunks if "guardrail" in chunk.get("tags", [])]
-        return {
-            "answer": answer,
-            "state": state,
-            "citations": guardrail_chunks[:1],
-            "mode": "guardrail",
-        }
+    if route_intent in {"birth", "origin", "real_name", "death", "identity"}:
+        hits = select_factual_hits(route_intent, profile, retriever, top_k)
+        answer = build_factual_answer(query, profile, route_intent, hits)
+        return result_payload(answer, "talking", [hit.chunk for hit in hits], "factual")
 
-    if is_out_of_period(query, metadata["death_year"], profile):
+    if route_intent == "private_life":
+        answer = build_local_fallback_answer(query, profile, route_intent, [])
+        return result_payload(answer, "talking", [], "conversation")
+
+    if route_intent == "smalltalk":
+        answer = build_local_fallback_answer(query, profile, route_intent, [])
+        return result_payload(answer, "talking", [], "conversation")
+
+    if route_intent == "anachronism_trap" or is_anachronistic_warfare_query(query) or is_out_of_period(query, metadata["death_year"], profile):
         answer, state = build_answer(query, profile, [])
         guardrail_chunks = [chunk for chunk in retriever.chunks if "guardrail" in chunk.get("tags", [])]
-        return {
-            "answer": answer,
-            "state": state,
-            "citations": guardrail_chunks[:1],
-            "mode": "guardrail",
-        }
+        if not guardrail_chunks:
+            answer = build_local_fallback_answer(query, profile, "anachronism_trap", [])
+        return result_payload(answer, state, guardrail_chunks[:1], "guardrail")
 
     if is_unsupported_claim(query):
         answer, state = build_answer(query, profile, [])
         guardrail_chunks = [chunk for chunk in retriever.chunks if "guardrail" in chunk.get("tags", [])]
-        return {
-            "answer": answer,
-            "state": state,
-            "citations": guardrail_chunks[:1],
-            "mode": "guardrail",
-        }
+        return result_payload(answer, state, guardrail_chunks[:1], "guardrail")
 
-    if is_identity_query(query):
-        chunk_map = {chunk.get("chunk_id"): chunk for chunk in retriever.chunks}
-        if profile_character_id(profile) == DEFAULT_CHARACTER_ID:
-            identity_ids = ("qt_kb_001", "qt_kb_012", "qt_kb_032", "qt_kb_043")
-            hits = [Hit(chunk_map[chunk_id], 1.0) for chunk_id in identity_ids if chunk_id in chunk_map][:top_k]
-        else:
-            identity_chunks = [
-                chunk
-                for chunk in retriever.chunks
-                if chunk_intents(chunk) & {"identity", "tieu_su", "profile"} or str(chunk.get("chunk_id", "")).endswith("_001")
-            ]
-            hits = [Hit(chunk, 1.0) for chunk in identity_chunks[:top_k]]
-    else:
-        hits = retriever.search(query, top_k=top_k, profile=profile)
+    if not needs_rag:
+        answer = build_local_fallback_answer(query, profile, route_intent, [])
+        return result_payload(answer, "talking", [], "conversation")
+
+    retrieval_query = (
+        search_query
+        or str(route.get("optimized_search_query") or "").strip()
+        or query
+    )
+    hits = retriever.search(retrieval_query, top_k=top_k, profile=profile)
+    original_intents = query_intents(query)
+    for intent in ("micro_tactics", "administration", "education", "scholars"):
+        if intent in original_intents and not any(intent in chunk_intents(hit.chunk) for hit in hits):
+            intent_hits = select_intent_hits(query, retriever, intent, top_k)
+            if intent_hits:
+                hits = intent_hits
+            break
     if has_uncovered_year_claim(query, hits):
         answer = (
             "Việc ấy chưa đủ chứng cứ để ta nhận là thật. Với câu hỏi nêu rõ năm, tên tướng hoặc địa danh, "
             "phải xét rất nghiêm; nếu chưa rõ thì không được dựng thêm sự kiện."
         )
         guardrail_chunks = [chunk for chunk in retriever.chunks if "guardrail" in chunk.get("tags", [])]
-        return {
-            "answer": answer,
-            "state": "confused",
-            "citations": guardrail_chunks[:1],
-            "mode": "guardrail",
-        }
+        return result_payload(answer, "confused", guardrail_chunks[:1], "guardrail")
     answer, state = build_answer(query, profile, hits)
     citations = [hit.chunk for hit in hits]
     mode = "retrieval"
@@ -2076,13 +2632,6 @@ def answer_query(
         if generated and is_generated_answer_acceptable(query, generated):
             answer = generated
             mode = "api"
-    if is_pure_smalltalk_query(query):
-        mode = "conversation"
-    elif state == "confused" and not citations:
+    if state == "confused" and not citations:
         mode = "guardrail"
-    return {
-        "answer": answer,
-        "state": state,
-        "citations": citations,
-        "mode": mode,
-    }
+    return result_payload(answer, state, citations, mode)
