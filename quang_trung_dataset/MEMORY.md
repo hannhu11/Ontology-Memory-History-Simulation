@@ -478,3 +478,25 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `python backend\smoke_test.py` -> pass;
   - `cd frontend && npm run build` -> pass.
 - Khi deploy bản này: pull commit mới, build frontend, restart `history-ontology-api.service` và `history-ontology-web.service`. Không cần sửa Nginx/PetHub, không mở port mới.
+
+## Deploy hotfix Simulacra RAG và visual sync hoàn tất ngày 2026-06-08
+
+- Commit code đã push/deploy: `0943395` (`Fix simulacra routing and visual sync`).
+- Production `/home/ubuntu/history-ontology` đã `git pull --ff-only origin main`, chạy:
+  - `python -m py_compile backend/main.py backend/smoke_test.py quang_trung_web/rag_core.py quang_trung_web/llm_provider.py` -> pass;
+  - `python backend/smoke_test.py` -> pass;
+  - `cd frontend && npm run build` -> pass;
+  - restart `history-ontology-api.service` và `history-ontology-web.service`.
+- Lưu ý vận hành: sau restart API cần khoảng 14 giây preload RAG/embedding cho 5 nhân vật; health check quá sớm có thể fail tạm thời, nhưng service active sau startup.
+- Acceptance checks production:
+  - `http://127.0.0.1:8601/api/health` active sau preload;
+  - `http://172.19.0.1:8501` trả `HTTP 200`;
+  - `https://history-simulation-ai.online/` trả `HTTP/2 200`;
+  - `https://pethubvn.store/` trả `HTTP/2 200`, không bị ảnh hưởng.
+- Production API regression:
+  - câu `chao vua, vua hay cho toi biet ve tran danh ngoc hoi , dong da di` trả `mode=retrieval`, citations quân sự `qt_kb_096/029/093`, visual `battle_detail`, `emotion=angry`, `motion=attack`, không còn `Ta đang nghe`;
+  - câu `ông với nguyễn huệ là gì của nhau` trả `intent=identity_confusion`, `emotion=confused`, nói rõ Nguyễn Huệ là tên của ta, Quang Trung là niên hiệu, không phải hai người.
+- Browser production bằng Playwright:
+  - load domain thấy đủ 5 nhân vật, khung nhập sẵn sàng;
+  - gửi `vua hãy cho tôi biết trận ngọc hồi, đống đa đi` qua UI trả câu dài, đúng trọng tâm trận quân Thanh;
+  - console browser không có warnings/errors.
