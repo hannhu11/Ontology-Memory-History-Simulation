@@ -964,8 +964,26 @@ def is_identity_query(query: str) -> bool:
         "trieu dai nao",
         "thong linh",
         "cam quan",
+        "ten that",
+        "ten cua",
+        "co phai la mot",
+        "co phai mot nguoi",
     )
-    return any(has_phrase(normalized, phrase) for phrase in identity_phrases)
+    if any(has_phrase(normalized, phrase) for phrase in identity_phrases):
+        return True
+    identity_names = ("nguyen hue", "quang trung", "bac binh vuong")
+    relation_terms = (
+        "gi cua nhau",
+        "la gi cua nhau",
+        "quan he gi",
+        "anh em",
+        "mot nguoi",
+        "co phai",
+        "ten",
+    )
+    return any(has_phrase(normalized, name) for name in identity_names) and any(
+        has_phrase(normalized, term) for term in relation_terms
+    )
 
 
 def is_smalltalk_query(query: str) -> bool:
@@ -1018,11 +1036,54 @@ def is_quang_trung_self_name_confusion(query: str, profile: dict | None = None) 
             "la anh em",
             "co phai anh em",
             "quan he gi",
+            "gi cua nhau",
+            "la gi cua nhau",
             "la ai",
             "co phai la",
+            "co phai mot nguoi",
+            "mot nguoi",
         )
     )
     return has_self_name and has_relation
+
+
+def has_substantive_historical_anchor(query: str) -> bool:
+    normalized = normalize(query)
+    if query_intents(query):
+        return True
+    anchor_phrases = (
+        "ngoc hoi",
+        "dong da",
+        "rach gam",
+        "xoai mut",
+        "quan thanh",
+        "quan xiem",
+        "ton si nghi",
+        "nguyen hue",
+        "quang trung",
+        "bac binh vuong",
+        "bach dang",
+        "dien bien phu",
+        "nhan nghia",
+        "tu tuong",
+        "chien tranh nhan dan",
+        "khoan thu suc dan",
+        "binh ngo",
+        "doc lap tu do",
+        "phuong hoang trung do",
+        "tin bai",
+        "tien quang trung",
+        "chieu lap hoc",
+        "chieu khuyen nong",
+    )
+    if any(has_phrase(normalized, phrase) for phrase in anchor_phrases):
+        return True
+    action_terms = ("tran", "chien dich", "chien thang", "danh", "ke ve", "mo ta", "noi qua")
+    return len(tokenize(query)) > 5 and any(has_phrase(normalized, term) for term in action_terms)
+
+
+def is_pure_smalltalk_query(query: str) -> bool:
+    return is_smalltalk_query(query) and not is_identity_query(query) and not has_substantive_historical_anchor(query)
 
 
 def resolve_character_id(character_or_dir: Path | str = DEFAULT_CHARACTER_ID) -> str:
@@ -1684,7 +1745,7 @@ def build_generic_character_answer(query: str, profile: dict, hits: list[Hit]) -
         ), "confused"
     if is_private_life_query(query):
         return build_private_life_answer(query, profile), "talking"
-    if is_smalltalk_query(query) and not is_identity_query(query):
+    if is_pure_smalltalk_query(query):
         topics = ", ".join(
             hit.chunk.get("topic_title", "")
             for hit in hits[:3]
@@ -1746,13 +1807,15 @@ def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
 
     if is_quang_trung_self_name_confusion(query, profile):
         answer = (
-            "Nguyễn Huệ là tên của ta trước khi lấy niên hiệu Quang Trung, không phải một người anh em nào khác. "
-            "Hậu thế có thể gọi ta là Nguyễn Huệ, Bắc Bình vương hay Hoàng đế Quang Trung, nhưng đều chỉ về một người: "
-            "kẻ đã dựng cờ Tây Sơn, đánh quân Xiêm ở Rạch Gầm - Xoài Mút và phá quân Thanh ở Ngọc Hồi - Đống Đa."
+            "Nguyễn Huệ là tên của ta, còn Quang Trung là niên hiệu khi ta lên ngôi hoàng đế; đó không phải hai người, "
+            "cũng chẳng phải anh em. Ngươi hỏi vậy là lẫn danh xưng với con người. Hậu thế có thể gọi ta là Nguyễn Huệ, "
+            "Bắc Bình vương hay Hoàng đế Quang Trung, nhưng đều chỉ về một người đã dựng cờ Tây Sơn, phá quân Xiêm ở "
+            "Rạch Gầm - Xoài Mút, rồi tiến ra Bắc đánh tan quân Thanh ở Ngọc Hồi - Đống Đa. Nhớ cho rõ: tên người, "
+            "tước vị và niên hiệu có thể khác, nhưng chí khí giữ nước ấy chỉ là một."
         )
         return answer, "talking"
 
-    if is_smalltalk_query(query) and not is_identity_query(query):
+    if is_pure_smalltalk_query(query):
         answer = (
             "Ta đang nghe. Hãy hỏi rõ điều ngươi muốn biết về thân thế, việc cầm quân, Rạch Gầm - Xoài Mút, "
             "Nghệ An, hoặc trận Ngọc Hồi - Đống Đa; điều nào đủ chứng cứ thì ta sẽ nói thẳng."
@@ -1841,7 +1904,10 @@ def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
             "Nếu hỏi trận khiến ta hãnh diện nhất, ta nói trước hết đến Ngọc Hồi - Đống Đa mùa xuân Kỷ Dậu 1789. "
             "Đó không chỉ là một trận thắng, mà là lúc lòng quân, tốc độ hành binh và thế đánh nhiều hướng hợp lại thành một ý chí: "
             "đánh tan quân Thanh, giải phóng Thăng Long, giữ lấy danh dự nước Nam. Trước đó Rạch Gầm - Xoài Mút cũng là thắng lợi lớn, "
-            "vì ta chọn đúng khúc sông, khóa đầu đuôi thủy quân Xiêm - Nguyễn và phá tan thế can thiệp từ phương Nam."
+            "vì ta chọn đúng khúc sông, khóa đầu đuôi thủy quân Xiêm - Nguyễn và phá tan thế can thiệp từ phương Nam. "
+            "Nhưng Ngọc Hồi - Đống Đa làm ta nhớ sâu hơn, bởi đó là lúc đất Bắc đang bị giày xéo, lòng người hoang mang, "
+            "mà ba quân vẫn đi suốt ngày đêm để giữ lời hẹn vào Thăng Long ăn Tết. Một trận như thế không chỉ thắng bằng gươm giáo, "
+            "mà thắng bằng khí thế của cả nước không chịu cúi đầu."
         )
         return answer, "talking"
 
@@ -1864,7 +1930,9 @@ def build_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
                 "uy hiếp Hà Hồi để làm địch khiếp vía, đánh thẳng Ngọc Hồi bằng đội mộc rơm ướt che trước hỏa lực, phối hợp "
                 "tượng binh, hỏa hổ, súng và bộ binh áp sát. Ở hướng Đống Đa, các đạo vu hồi đánh vào sườn và sau lưng, khiến "
                 "quân Thanh rối loạn, Tôn Sĩ Nghị không kịp giữ thế trận. Thắng là vì đi nhanh, đánh đúng chỗ chủ quan của địch, "
-                "và buộc quân đông mà tan thành từng mảng."
+                "và buộc quân đông mà tan thành từng mảng. Trận ấy cũng là lời đáp cho kẻ nào tưởng nước Nam suy yếu sau loạn lạc: "
+                "quân có thể ít hơn, đường đi có thể gấp hơn, nhưng nếu biết gom lòng người, giữ kỷ luật và đánh vào thời cơ, "
+                "thế mạnh của địch sẽ hóa thành gánh nặng của chính chúng."
             )
         return answer, "talking"
 
@@ -1935,7 +2003,7 @@ def answer_query(
 ) -> dict:
     top_k = configured_top_k(top_k)
     metadata = profile["character_metadata"]
-    if is_smalltalk_query(query) and not is_identity_query(query):
+    if is_pure_smalltalk_query(query):
         answer, state = build_answer(query, profile, [])
         return {
             "answer": answer,
@@ -2008,7 +2076,7 @@ def answer_query(
         if generated and is_generated_answer_acceptable(query, generated):
             answer = generated
             mode = "api"
-    if is_smalltalk_query(query) and not is_identity_query(query):
+    if is_pure_smalltalk_query(query):
         mode = "conversation"
     elif state == "confused" and not citations:
         mode = "guardrail"

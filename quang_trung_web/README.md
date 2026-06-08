@@ -67,6 +67,8 @@ Mỗi chunk có `source_tier` và `source_quality_score`:
 Lời nhân vật không được nói như bot đọc dataset. UI citation là nơi minh bạch học thuật; nhân vật chỉ nói bằng vai lịch sử.
 
 - Nếu câu hỏi nằm trong đời nhân vật nhưng context chưa đủ chi tiết, câu trả lời chuyển sang tầng đại cục, không nói `không có dữ liệu`.
+- Chỉ chào hỏi thuần túy mới dùng fallback conversation. Các câu có `chào`, `cho tôi biết`, `tôi hỏi` nhưng chứa trận đánh, tư tưởng, tên riêng hoặc địa danh lịch sử vẫn đi qua hybrid retrieval/Gemini.
+- Quang Trung có guard identity-confusion: `Nguyễn Huệ` là tên người, `Quang Trung` là niên hiệu, không phải hai nhân vật hoặc anh em.
 - Nếu câu hỏi sau năm mất, nhân vật nói rõ đó là chuyện đời sau.
 - Riêng Hồ Chí Minh với các câu liên quan di sản sau 1969 như 1975, app trả theo dạng “sau khi Bác đã đi xa, sử sách đời sau ghi...”, không nói như nhân chứng trực tiếp.
 - Không bịa chi tiết vi mô như ngày, địa danh, tên người nếu citation không neo được.
@@ -120,6 +122,7 @@ npm run build
 Smoke test hiện kiểm tra:
 
 - Quang Trung battle reflection và mô tả trận quân Thanh.
+- Regression câu thật của user: `chao vua, vua hay cho toi biet ve tran danh ngoc hoi , dong da di` không được trả fallback `Ta đang nghe`; `ông với nguyễn huệ là gì của nhau` phải trả đúng quan hệ tên/niên hiệu.
 - Positive/negative cases cho đủ 5 nhân vật.
 - Không lẫn citation giữa nhân vật.
 - Không tự gọi tên nhân vật trong câu trả lời tự nhiên.
@@ -133,5 +136,6 @@ Smoke test hiện kiểm tra:
 - `app.py`: Streamlit legacy UI/rollback.
 - `rag_core.py`: loader multi-character, hybrid retrieval, intent routing, guardrail, simulation fallback.
 - `llm_provider.py`: Gemini-only generator, prompt bảo toàn Simulacra.
+- Prompt Gemini yêu cầu câu lịch sử/trận đánh/tư tưởng trả 2-4 đoạn văn xuôi, tối thiểu 5 câu; chỉ smalltalk thuần túy mới được ngắn.
 - `tts_provider.py`: Google TTS REST, SSML voice profiles, trả audio base64.
 - `smoke_test.py`: regression/runtime tests.

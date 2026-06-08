@@ -95,8 +95,8 @@ export const useHistoryStore = create<HistoryState>((set) => ({
         emotion: "talking",
         baseEmotion:
           state.visual.emotion === "talking" ? state.visual.baseEmotion || "idle" : state.visual.emotion,
-        motion: "none",
-        action: "none",
+        motion: state.visual.motion === "attack" ? "attack" : "none",
+        action: state.visual.motion === "attack" ? state.visual.action : "none",
       },
     })),
   endSpeaking: () =>

@@ -68,10 +68,28 @@ def main() -> None:
         quang_trung = final_answer_for(client, "quang_trung", "ông với Nguyễn Huệ là anh em à")
         assert "tên của ta" in quang_trung["answer"]
         assert "không phải" in quang_trung["answer"]
+        assert "gươm giáo chỉ là bước mở đường" not in quang_trung["answer"]
+
+        name_relation = final_answer_for(client, "quang_trung", "ông với nguyễn huệ là gì của nhau")
+        assert "tên của ta" in name_relation["answer"]
+        assert "không phải" in name_relation["answer"]
+        assert name_relation["visual"]["intent"] == "identity_confusion"
+
+        ngoc_hoi = final_answer_for(
+            client,
+            "quang_trung",
+            "chao vua, vua hay cho toi biet ve tran danh ngoc hoi , dong da di",
+        )
+        normalized_ngoc_hoi = ngoc_hoi["answer"].lower()
+        assert "ta đang nghe" not in normalized_ngoc_hoi
+        assert "ngọc hồi" in normalized_ngoc_hoi or "đống đa" in normalized_ngoc_hoi
+        assert len(ngoc_hoi["answer"].split()) >= 80
+        assert ngoc_hoi["visual"]["motion"] == "attack"
 
         battle = final_answer_for(client, "quang_trung", "vua kể trận đánh khiến vua hãnh diện nhất đi")
         assert battle["visual"]["motion"] == "attack"
         assert battle["visual"]["emotion"] in {"happy", "angry"}
+        assert len(battle["answer"].split()) >= 80
 
         bac = final_answer_for(client, "ho_chi_minh", "BÁC CÓ VỢ KHÔNG, cho cháu biết đi")
         assert "Chuyện riêng tư" in bac["answer"]

@@ -206,6 +206,10 @@ export default function Home() {
     () => activeCharacter(characters, selectedCharacterId),
     [characters, selectedCharacterId],
   );
+  const latestAssistantId = useMemo(
+    () => [...messages].reverse().find((message) => message.role === "assistant")?.id,
+    [messages],
+  );
 
   const handleSelectCharacter = (characterId: string) => {
     abortRef.current?.abort();
@@ -378,8 +382,8 @@ export default function Home() {
                 <MessageBubble
                   key={message.id}
                   message={message}
-                  onAudioPlay={message.role === "assistant" ? beginSpeaking : undefined}
-                  onAudioStop={message.role === "assistant" ? endSpeaking : undefined}
+                  onAudioPlay={message.role === "assistant" && message.id === latestAssistantId ? beginSpeaking : undefined}
+                  onAudioStop={message.role === "assistant" && message.id === latestAssistantId ? endSpeaking : undefined}
                 />
               ))}
             </div>

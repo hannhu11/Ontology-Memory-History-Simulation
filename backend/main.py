@@ -38,6 +38,7 @@ from rag_core import (  # noqa: E402
     is_identity_query,
     is_legacy_afterlife_query,
     is_private_life_query,
+    is_quang_trung_self_name_confusion,
     load_chunks,
     load_profile,
     query_intents,
@@ -126,7 +127,11 @@ def visual_payload(
         }
 
     is_pre_1954_character = isinstance(death_year, int) and death_year < 1954
-    if mode == "guardrail" or state == "confused" or (
+    if character_id == "quang_trung" and is_quang_trung_self_name_confusion(query, profile):
+        intent = "identity_confusion"
+        emotion = "confused"
+        asset = "confused.png"
+    elif mode == "guardrail" or state == "confused" or (
         is_pre_1954_character and "điện biên phủ" in combined
     ) or any(
         marker in combined

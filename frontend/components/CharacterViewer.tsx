@@ -53,7 +53,7 @@ function SpriteSheet({
         if (next >= frameCount) {
           if (!loop) {
             window.clearInterval(interval);
-            window.setTimeout(() => onComplete?.(), 120);
+            window.setTimeout(() => onComplete?.(), 560);
             return frameCount - 1;
           }
           return 0;
@@ -71,7 +71,7 @@ function SpriteSheet({
 
   return (
     <div
-      className="h-full w-full bg-no-repeat"
+      className="h-full w-full bg-no-repeat transition-opacity duration-300 ease-out"
       style={{
         backgroundImage: `url("${src}")`,
         backgroundSize: `${columns * 100}% ${rows * 100}%`,

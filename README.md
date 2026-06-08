@@ -61,12 +61,15 @@ Biến cần thiết: `GEMINI_API_KEY`, `GOOGLE_TTS_API_KEY`, `GOOGLE_TTS_TIMEOU
 - `character_registry.py` là nguồn cấu hình duy nhất cho dataset path, asset path và edge-case buttons.
 - `rag_core.py` nạp profile/chunks theo `character_id`, tạo index riêng `.rag_index/<character_id>` và dùng guardrail theo `death_year`.
 - Quang Trung có query rewriting cho `vua`, `ngài`, `ông`, `ta`; câu “trận hãnh diện/đáng nhớ” được route về Ngọc Hồi - Đống Đa và Rạch Gầm - Xoài Mút.
+- Smalltalk gate chỉ áp dụng cho chào hỏi thuần túy. Câu có tiền tố `chào`, `cho tôi biết` nhưng chứa trận đánh, tư tưởng, tên riêng hoặc địa danh lịch sử vẫn phải đi qua hybrid RAG, tránh fallback `Ta đang nghe...`.
+- Câu nhầm tên Quang Trung/Nguyễn Huệ được xử lý như identity-confusion: Nguyễn Huệ là tên người, Quang Trung là niên hiệu, không phải hai nhân vật hay anh em.
 - Các nhân vật mới dùng cùng runtime, có intent `ideology`, `military_doctrine`, `life_milestone` để tránh trả lời tiểu sử khi người dùng hỏi tư tưởng/chiến lược.
 - Citation có `source_tier` và `source_quality_score`; retriever ưu tiên nguồn chính thống, đúng intent, đúng nhân vật và khử trùng lặp.
 - Fallback nội bộ bảo toàn Simulacra: nhân vật không nói như bot đọc dataset; UI citation là phần học thuật riêng.
 - Câu sau năm mất bị xử lý theo vai. Riêng Hồ Chí Minh với các câu di sản sau 1969 như 1975 trả theo dạng “sau khi Bác đã đi xa, sử sách đời sau ghi...”.
 - TTS chạy sau `final`, không ghi MP3 ra ổ đĩa và không lộ model/provider trên giao diện.
 - Quang Trung dùng bộ asset 1254x1254 trong `quang_trung_web/assets/quang_trung/` và 2 sprite sheet `Quang Trung-hero_thinking.png`, `Quang Trung-attack.png`. Frontend render trong `CharacterViewer`, không scale ảnh làm vỡ layout; right rail dùng sticky container để asset đi cùng khi người dùng cuộn hội thoại.
+- Audio của tin nhắn cũ không điều khiển asset hiện tại. Nếu `attack` đang chạy, audio không hủy motion; sprite kết thúc rồi mới chuyển sang lip-sync/talking.
 
 ## Voice Matrix
 
@@ -103,6 +106,10 @@ npm run build
 ```
 
 Smoke test kiểm tra đủ 5 nhân vật, positive/negative cases, Quang Trung battle reflection, visual payload cho asset state machine, Võ Nguyên Giáp Điện Biên Phủ, HCM legacy-afterlife, persona không tự gọi tên mình, citation source-tier và TTS SSML.
+Regression mới bắt buộc:
+
+- `chao vua, vua hay cho toi biet ve tran danh ngoc hoi , dong da di` không được trả `Ta đang nghe`, phải route về Ngọc Hồi - Đống Đa và motion `attack`.
+- `ông với nguyễn huệ là gì của nhau` phải trả identity-confusion đúng, không rơi về câu đại cục chung chung.
 
 ## Production
 

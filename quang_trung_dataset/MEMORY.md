@@ -450,3 +450,31 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - khi audio phát, avatar chuyển sang `talking.png`;
   - sau `window.scrollTo(...)`, right rail vẫn giữ top 32px, asset đi cùng cuộc trò chuyện.
 - Production repo còn hai file untracked trong `deploy/` do cấu hình Nginx trước đó: `deploy/apply-history-nginx.sh`, `deploy/history-simulation-ai.online.conf`; để nguyên, không commit từ VPS nếu chưa quyết định chuẩn hóa deploy scripts.
+
+## Hotfix Simulacra RAG và animation ngày 2026-06-08
+
+- Root cause user thấy câu trả lời vẫn như cũ: `rag_core.py` nhận nhầm các câu có tiền tố `chào`, `cho tôi biết`, `tôi hỏi` thành smalltalk trước retrieval. Vì vậy câu có nội dung thật như `chao vua, vua hay cho toi biet ve tran danh ngoc hoi, dong da di` bị chặn trước khi hybrid RAG/query rewrite chạy và trả fallback `Ta đang nghe...`.
+- Đã thêm `has_substantive_historical_anchor()` và `is_pure_smalltalk_query()`:
+  - chỉ chào hỏi thuần túy mới đi vào conversation fallback;
+  - câu có trận đánh, nhân vật, tư tưởng, địa danh, niên hiệu, tên riêng hoặc intent lịch sử sẽ đi qua retrieval/Gemini.
+- Đã mở rộng identity/self-name confusion:
+  - câu `ông với Nguyễn Huệ là gì của nhau` hoặc `ông với Nguyễn Huệ là anh em à` được xử lý trực tiếp;
+  - trả lời rõ Nguyễn Huệ là tên người, Quang Trung là niên hiệu, không phải hai người hay anh em.
+- Đã tăng chất lượng câu trả lời:
+  - `llm_provider.py` bỏ giới hạn `Trả lời 1-2 đoạn ngắn`;
+  - prompt mới yêu cầu câu lịch sử/trận đánh/tư tưởng/thân thế trả 2-4 đoạn, tối thiểu 5 câu, có nguyên nhân, diễn biến, ý nghĩa;
+  - `maxOutputTokens` tăng từ 900 lên 1400.
+- Đã sửa animation sync:
+  - audio của các tin nhắn cũ không còn điều khiển asset hiện tại; chỉ audio của assistant message mới nhất mới gọi `beginSpeaking/endSpeaking`;
+  - nếu `attack` đang chạy, audio không được hủy motion; sprite đánh xong mới chuyển sang talking;
+  - sprite `attack` giữ frame cuối thêm 560ms để dừng bớt gắt.
+- Đã thêm visual intent riêng `identity_confusion` trong FastAPI để câu nhầm tên Quang Trung/Nguyễn Huệ dùng asset `confused`, không bật attack.
+- Regression tests đã thêm vào `backend/smoke_test.py`:
+  - `chao vua, vua hay cho toi biet ve tran danh ngoc hoi , dong da di` không được trả `Ta đang nghe`, phải nhắc Ngọc Hồi/Đống Đa, tối thiểu 80 từ và visual `attack`;
+  - `ông với nguyễn huệ là gì của nhau` phải có `tên của ta`, `không phải`, visual intent `identity_confusion`;
+  - battle reflection phải tối thiểu 80 từ.
+- Kiểm thử local đã chạy:
+  - `python -m py_compile backend\main.py backend\smoke_test.py quang_trung_web\rag_core.py quang_trung_web\llm_provider.py` -> pass;
+  - `python backend\smoke_test.py` -> pass;
+  - `cd frontend && npm run build` -> pass.
+- Khi deploy bản này: pull commit mới, build frontend, restart `history-ontology-api.service` và `history-ontology-web.service`. Không cần sửa Nginx/PetHub, không mở port mới.

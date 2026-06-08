@@ -19,6 +19,7 @@ except ImportError:
 
 MODEL_NAME = "gemini-3.5-flash"
 DEFAULT_TIMEOUT_SECONDS = 18.0
+MAX_OUTPUT_TOKENS = 1400
 
 FORBIDDEN_CHARACTER_TERMS = (
     "nguồn",
@@ -92,6 +93,33 @@ def _listener(profile: dict) -> str:
     return "ngươi"
 
 
+def _persona_directive(profile: dict) -> str:
+    character_id = profile.get("character_id", "quang_trung")
+    directives = {
+        "quang_trung": (
+            'Xưng "ta" hoặc "trẫm", gọi người hỏi là "ngươi" hoặc "kẻ hậu sinh". '
+            "Khẩu khí đanh thép, thẳng, hào sảng, thực tế; khi nói trận đánh phải có nguyên nhân, thế trận, hành động và ý nghĩa."
+        ),
+        "tran_hung_dao": (
+            'Xưng "ta" hoặc "Quốc công", gọi "ngươi" hoặc "hậu bối". '
+            "Lời trầm, nặng xã tắc, đề cao lòng dân, kỷ luật tướng sĩ và phép giữ nước lâu dài."
+        ),
+        "nguyen_trai": (
+            'Xưng "ta" hoặc "kẻ hèn này", gọi "ngươi". '
+            "Văn phong nho nhã, thâm trầm, giàu nhịp nhân nghĩa, yên dân, mưu phạt tâm công, có chiều sâu u hoài."
+        ),
+        "ho_chi_minh": (
+            'Xưng "Bác", gọi "cháu", "các cháu" hoặc "đồng bào" theo câu hỏi. '
+            "Giản dị, ấm, gần gũi nhưng kiên định; nói dễ hiểu, không sáo rỗng."
+        ),
+        "vo_nguyen_giap": (
+            'Xưng "tôi", gọi "đồng chí" hoặc "bạn". '
+            "Điềm tĩnh, rành mạch, khiêm tốn, nhìn vấn đề bằng chính trị, nhân dân, hậu cần, thế trận và thời cơ."
+        ),
+    }
+    return directives.get(character_id, "Giữ đúng ngôi thứ nhất, lời tự nhiên, không nói như báo cáo.")
+
+
 def _enforce_first_person(text: str, profile: dict) -> str:
     cleaned = text.strip()
     pronoun = _first_person(profile)
@@ -151,6 +179,7 @@ def _build_prompts(query: str, profile: dict, citations: list[dict]) -> tuple[st
     forbidden_names = ", ".join(f'"{name}"' for name in _self_names(profile))
     pronoun = _first_person(profile)
     listener = _listener(profile)
+    persona_directive = _persona_directive(profile)
     blueprint = metadata.get("system_prompt_blueprint", "")
     tone = metadata.get("tone_of_voice", "")
     death_year = metadata.get("death_year", "")
@@ -158,6 +187,7 @@ def _build_prompts(query: str, profile: dict, citations: list[dict]) -> tuple[st
 Bạn KHÔNG PHẢI là một AI đang đọc tài liệu. Bạn đang mô phỏng trực tiếp nhân vật lịch sử {metadata["name"]}.
 Blueprint nhân vật: {blueprint}
 Văn phong riêng: {tone}
+Lệnh nhập vai động: {persona_directive}
 Khi trả lời tuyệt đối KHÔNG tự gọi mình bằng các tên sau: {forbidden_names}.
 Luôn xưng "{pronoun}" và gọi người nghe theo ngữ cảnh là {listener}.
 Chỉ trả lời bằng tiếng Việt có dấu đầy đủ.
@@ -172,7 +202,9 @@ Tuyệt đối không dùng các từ/cụm sau trong câu trả lời: nguồn,
 Nếu câu hỏi yêu cầu xác nhận truyền thuyết, sự kiện thiếu chứng cứ, hoặc sự kiện sau năm {death_year} mà không phải di sản lịch sử trực tiếp của nhân vật, hãy nói theo vai rằng việc ấy thuộc đời sau hoặc chưa đủ căn cứ.
 Nếu câu hỏi gán sự kiện đúng cho khái niệm đời sau, hãy bác đúng phần đời sau, không bác sự kiện lịch sử đúng.
 Không liệt kê nhan đề tư liệu trong thân câu trả lời; giao diện sẽ hiển thị riêng.
-Trả lời 1-2 đoạn ngắn, tự nhiên, có nhịp nói của người thật, hợp lý cho hậu thế.
+Độ dài bắt buộc: nếu là chào hỏi thuần túy thì có thể ngắn; nếu là câu hỏi lịch sử, tư tưởng, trận đánh, thân thế, quan hệ tên gọi hoặc lựa chọn chính trị, hãy trả lời 2-4 đoạn văn xuôi, tối thiểu 5 câu rõ ý.
+Với trận đánh, phải có đủ thế nước, cách đánh, diễn biến chính và ý nghĩa. Với tư tưởng, phải có định nghĩa, nền tảng đời sống và hệ quả hành động.
+Không dùng gạch đầu dòng, không viết như báo cáo, không dùng câu né tránh kiểu "hãy hỏi rõ hơn" nếu câu hỏi đã có tên người, sự kiện, trận đánh hoặc khái niệm lịch sử.
 """.strip()
 
     user_prompt = f"""
@@ -198,7 +230,7 @@ def _call_gemini(system_prompt: str, user_prompt: str) -> str | None:
             "generationConfig": {
                 "temperature": 0.32,
                 "topP": 0.9,
-                "maxOutputTokens": 900,
+                "maxOutputTokens": MAX_OUTPUT_TOKENS,
             },
         }
         response = _post_json(url, {"Content-Type": "application/json"}, payload)
@@ -243,7 +275,7 @@ def _call_gemini_stream(system_prompt: str, user_prompt: str) -> Iterator[str]:
             "generationConfig": {
                 "temperature": 0.34,
                 "topP": 0.9,
-                "maxOutputTokens": 900,
+                "maxOutputTokens": MAX_OUTPUT_TOKENS,
             },
         }
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
