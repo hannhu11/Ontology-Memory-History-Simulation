@@ -31,7 +31,8 @@ def main() -> int:
         contents="Return exactly OK.",
         config=types.GenerateContentConfig(
             temperature=0.0,
-            max_output_tokens=8,
+            max_output_tokens=64,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         ),
     )
     text = (response.text or "").strip()

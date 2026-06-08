@@ -96,7 +96,7 @@ gcloud auth application-default set-quota-project project-8fbd66f4-2cd0-4a03-a50
 gcloud services enable aiplatform.googleapis.com
 ```
 
-Sau đó đặt trong `quang_trung_web/.env`: `LLM_PROVIDER=vertex`, `GOOGLE_CLOUD_PROJECT=project-8fbd66f4-2cd0-4a03-a508`, `GOOGLE_CLOUD_LOCATION=us-central1`, `GOOGLE_GENAI_USE_VERTEXAI=true`, `GEMINI_MODEL_NAME=gemini-2.5-flash`, `GEMINI_ROUTER_MODEL_NAME=gemini-2.5-flash`. Kiểm tra bằng:
+Sau đó đặt trong `quang_trung_web/.env`: `LLM_PROVIDER=vertex`, `GOOGLE_CLOUD_PROJECT=<project-id>`, `GOOGLE_CLOUD_LOCATION=us-central1`, `GOOGLE_GENAI_USE_VERTEXAI=true`, `GEMINI_MODEL_NAME=gemini-2.5-flash`, `GEMINI_ROUTER_MODEL_NAME=gemini-2.5-flash`, `VERTEX_THINKING_BUDGET=0`. Kiểm tra bằng:
 
 ```bash
 /home/ubuntu/history-ontology/quang_trung_web/.venv/bin/python quang_trung_web/verify_vertex.py

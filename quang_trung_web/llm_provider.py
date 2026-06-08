@@ -131,6 +131,16 @@ def configured_google_cloud_location() -> str:
     ).strip() or DEFAULT_VERTEX_LOCATION
 
 
+def configured_vertex_thinking_budget() -> int | None:
+    raw_value = os.getenv("VERTEX_THINKING_BUDGET", "0").strip().lower()
+    if raw_value in {"", "none", "default"}:
+        return None
+    try:
+        return max(0, int(raw_value))
+    except ValueError:
+        return 0
+
+
 def is_configured() -> bool:
     if uses_vertex_provider():
         return bool(configured_google_cloud_project())
@@ -603,12 +613,14 @@ def _vertex_generate_content(
     response_mime_type: str | None = None,
 ) -> str:
     _, types = _load_genai()
+    thinking_budget = configured_vertex_thinking_budget()
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         temperature=temperature,
         top_p=top_p,
         max_output_tokens=max_output_tokens,
         response_mime_type=response_mime_type,
+        thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget is not None else None,
     )
     try:
         response = _configured_vertex_client().models.generate_content(
@@ -635,11 +647,13 @@ def _vertex_generate_content_stream(
     max_output_tokens: int,
 ) -> Iterator[str]:
     _, types = _load_genai()
+    thinking_budget = configured_vertex_thinking_budget()
     config = types.GenerateContentConfig(
         system_instruction=system_prompt,
         temperature=temperature,
         top_p=top_p,
         max_output_tokens=max_output_tokens,
+        thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget is not None else None,
     )
     try:
         for response in _configured_vertex_client().models.generate_content_stream(

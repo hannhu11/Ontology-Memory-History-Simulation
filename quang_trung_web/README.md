@@ -34,6 +34,7 @@ Không commit `.env`. Các biến chính:
 - `GEMINI_API_KEY` chỉ dùng khi `LLM_PROVIDER=gemini_api`.
 - `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GOOGLE_GENAI_USE_VERTEXAI=true` dùng khi `LLM_PROVIDER=vertex`.
 - `GEMINI_MODEL_NAME`, `GEMINI_ROUTER_MODEL_NAME`; production Vertex mặc định dùng `gemini-2.5-flash`.
+- `VERTEX_THINKING_BUDGET=0` để giảm hidden thinking tokens/latency cho chat realtime.
 - `GOOGLE_TTS_API_KEY` để gọi Google Cloud Text-to-Speech.
 - `GOOGLE_TTS_TIMEOUT_SECONDS` mặc định nên đặt `18`.
 - `RAG_SCORE_THRESHOLD` mặc định nên đặt `0.42`.
