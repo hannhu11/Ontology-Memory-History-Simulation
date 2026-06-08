@@ -433,3 +433,20 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `cd frontend; npm run build` -> pass;
   - Playwright local `127.0.0.1:8502`: ảnh `/assets/quang_trung/idle.png` load xong, right rail sticky, câu `vua kể trận đánh khiến vua hãnh diện nhất đi` chuyển visual về `angry_2.png` sau attack.
 - Khi deploy production: cần `git pull`, build lại frontend, restart cả `history-ontology-api.service` và `history-ontology-web.service` vì thay cả backend SSE contract lẫn frontend runtime. Không cần sửa Nginx/PetHub và không mở public port mới.
+
+## Deploy asset state machine Quang Trung hoàn tất ngày 2026-06-08
+
+- Commit code/assets đã push và deploy: `6eb92ab` (`Add Quang Trung visual state machine`).
+- Production `/home/ubuntu/history-ontology` đã `git pull --ff-only origin main`, `python -m py_compile backend/main.py backend/smoke_test.py`, `cd frontend && npm run build`, restart `history-ontology-api.service` và `history-ontology-web.service`.
+- Acceptance checks sau deploy:
+  - FastAPI health `http://127.0.0.1:8601/api/health` trả `ok=true`, đủ 5 nhân vật, `llm_configured=true`.
+  - Next local `http://172.19.0.1:8501` trả `HTTP/1.1 200 OK`.
+  - Nginx host-header `history-simulation-ai.online` trả `HTTP/1.1 200 OK`.
+  - `https://history-simulation-ai.online/` trả `HTTP/2 200`.
+  - `https://pethubvn.store/` vẫn trả `HTTP/2 200`; không đụng Nginx/PetHub.
+- Browser production bằng Playwright:
+  - asset mới load từ `/assets/quang_trung/idle.png`, right rail `position: sticky`, `top=32px`;
+  - câu `vua kể trận đánh khiến vua hãnh diện nhất đi` trả Ngọc Hồi - Đống Đa/Rạch Gầm - Xoài Mút;
+  - khi audio phát, avatar chuyển sang `talking.png`;
+  - sau `window.scrollTo(...)`, right rail vẫn giữ top 32px, asset đi cùng cuộc trò chuyện.
+- Production repo còn hai file untracked trong `deploy/` do cấu hình Nginx trước đó: `deploy/apply-history-nginx.sh`, `deploy/history-simulation-ai.online.conf`; để nguyên, không commit từ VPS nếu chưa quyết định chuẩn hóa deploy scripts.
