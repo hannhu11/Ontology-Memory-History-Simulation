@@ -230,8 +230,8 @@ def _persona_directive(profile: dict) -> str:
     return directives.get(character_id, "Giữ đúng ngôi thứ nhất, lời tự nhiên, không nói như báo cáo.")
 
 
-def _enforce_first_person(text: str, profile: dict) -> str:
-    cleaned = text.strip()
+def _enforce_first_person(text: str, profile: dict, strip: bool = True) -> str:
+    cleaned = text.strip() if strip else text
     pronoun = _first_person(profile)
     for name in _self_names(profile):
         escaped = re.escape(name)
@@ -256,9 +256,9 @@ def _enforce_first_person(text: str, profile: dict) -> str:
         cleaned = re.sub(rf"\bcủa\s+{escaped}\b", f"của {pronoun}", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(rf"\btheo\s+{escaped}\b", f"theo {pronoun}", cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.replace(f"{pronoun} {pronoun}", pronoun)
-    if pronoun != "tôi" and cleaned.startswith(f"{pronoun.lower()} "):
+    if strip and pronoun != "tôi" and cleaned.startswith(f"{pronoun.lower()} "):
         cleaned = pronoun + cleaned[len(pronoun):]
-    if pronoun == "tôi" and cleaned.startswith("tôi "):
+    if strip and pronoun == "tôi" and cleaned.startswith("tôi "):
         cleaned = "Tôi " + cleaned[4:]
     return cleaned
 
@@ -282,13 +282,13 @@ def _mentions_self_name(text: str, profile: dict) -> bool:
     return any(name.lower() in lowered for name in _self_names(profile))
 
 
-def sanitize_generated_text(text: str, profile: dict) -> str:
-    cleaned = _enforce_first_person(text, profile)
+def sanitize_generated_text(text: str, profile: dict, strip: bool = True) -> str:
+    cleaned = _enforce_first_person(text, profile, strip=strip)
     for term in FORBIDDEN_CHARACTER_TERMS:
         cleaned = re.sub(rf"\b{re.escape(term)}\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
     cleaned = re.sub(r"\s+([,.!?;:])", r"\1", cleaned)
-    return cleaned.strip()
+    return cleaned.strip() if strip else cleaned
 
 
 def stream_sanitized_chunks(chunks: Iterable[str], profile: dict, tail_size: int = 96) -> Iterator[str]:
@@ -301,10 +301,10 @@ def stream_sanitized_chunks(chunks: Iterable[str], profile: dict, tail_size: int
         if len(buffer) <= tail_size:
             continue
         emit, buffer = buffer[:-tail_size], buffer[-tail_size:]
-        sanitized = sanitize_generated_text(emit, profile)
+        sanitized = sanitize_generated_text(emit, profile, strip=False)
         if sanitized:
             yield sanitized
-    sanitized_tail = sanitize_generated_text(buffer, profile)
+    sanitized_tail = sanitize_generated_text(buffer, profile, strip=True)
     if sanitized_tail:
         yield sanitized_tail
 

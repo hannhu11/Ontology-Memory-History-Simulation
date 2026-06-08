@@ -213,6 +213,9 @@ def validate_streaming_mask() -> None:
         raise AssertionError(f"Streaming mask leaked forbidden text: {masked}")
     if "tôi" not in masked.lower():
         raise AssertionError(f"Streaming mask should convert self-name to first person: {masked}")
+    spaced = "".join(stream_sanitized_chunks(["Tôi nói về ", "trận đánh này."], profile, tail_size=4))
+    if "vềtrận" in spaced or "về trận" not in spaced:
+        raise AssertionError(f"Streaming mask should preserve token-boundary spaces: {spaced}")
 
 
 def validate_vertex_provider_mocks() -> None:
