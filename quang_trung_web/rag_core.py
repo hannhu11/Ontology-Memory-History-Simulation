@@ -2277,6 +2277,108 @@ def select_intent_hits(query: str, retriever: SimpleRetriever, intent: str, top_
     return sorted(hits, key=lambda hit: hit.score, reverse=True)[:top_k]
 
 
+CLASSIC_DBP_NEGATIVE_TERMS = (
+    "ha noi dien bien phu tren khong",
+    "dien bien phu tren khong",
+    "tren khong",
+    "linebacker",
+    "b52",
+    "1972",
+    "1973",
+    "1975",
+    "paris",
+    "mua_xuan_1975",
+    "chien_thang_1972",
+    "tay bac",
+    "1952",
+    "bien gioi",
+    "1950",
+)
+
+CLASSIC_DBP_POSITIVE_TERMS = (
+    "chien dich dien bien phu",
+    "dien bien phu",
+    "1954",
+    "danh chac tien chac",
+    "danh nhanh",
+    "quyet dinh lich su",
+    "keo phao",
+    "tap doan cu diem",
+    "geneva",
+    "khang chien chong phap",
+)
+
+
+def chunk_search_blob(chunk: dict) -> str:
+    return normalize(
+        " ".join(
+            [
+                chunk.get("topic_title", ""),
+                chunk.get("fact", ""),
+                chunk.get("text", ""),
+                chunk.get("source_title", ""),
+                " ".join(chunk.get("tags", [])),
+                " ".join(chunk.get("answer_intents", [])),
+                " ".join(chunk.get("canonical_questions", [])),
+            ]
+        )
+    )
+
+
+def is_classic_dien_bien_phu_query(query: str, profile: dict | None = None) -> bool:
+    if profile is not None and profile_character_id(profile) != "vo_nguyen_giap":
+        return False
+    query_norm = normalize(query)
+    if "dien bien phu" not in query_norm:
+        return False
+    return not any(
+        term in query_norm
+        for term in ("tren khong", "ha noi", "b52", "linebacker", "1972", "1973", "1975", "paris")
+    )
+
+
+def is_classic_dien_bien_phu_hit(hit: Hit) -> bool:
+    blob = chunk_search_blob(hit.chunk)
+    if "dien bien phu" not in blob and "dien_bien_phu" not in blob:
+        return False
+    if any(term in blob for term in CLASSIC_DBP_NEGATIVE_TERMS):
+        return False
+    return any(term in blob for term in CLASSIC_DBP_POSITIVE_TERMS)
+
+
+def select_classic_dien_bien_phu_hits(
+    query: str,
+    retriever: SimpleRetriever,
+    current_hits: list[Hit] | None = None,
+    top_k: int = DEFAULT_TOP_K,
+) -> list[Hit]:
+    if not is_classic_dien_bien_phu_query(query):
+        return current_hits or []
+    candidates: dict[str, Hit] = {}
+    for chunk in getattr(retriever, "chunks", []):
+        blob = chunk_search_blob(chunk)
+        if "dien bien phu" not in blob and "dien_bien_phu" not in blob:
+            continue
+        if any(term in blob for term in CLASSIC_DBP_NEGATIVE_TERMS):
+            continue
+        score = 0.42 + source_quality_boost(chunk)
+        score += 0.14 * sum(1 for term in CLASSIC_DBP_POSITIVE_TERMS if term in blob)
+        if "1954" in blob:
+            score += 0.18
+        if "danh chac tien chac" in blob:
+            score += 0.2
+        if "tap doan cu diem" in blob or "keo phao" in blob:
+            score += 0.12
+        if score >= 0.58:
+            candidates[chunk.get("chunk_id", "")] = Hit(chunk, min(score, 1.0))
+
+    for hit in current_hits or []:
+        if is_classic_dien_bien_phu_hit(hit):
+            candidates.setdefault(hit.chunk.get("chunk_id", ""), hit)
+
+    return sorted(candidates.values(), key=lambda hit: hit.score, reverse=True)[:top_k]
+
+
 def build_generic_character_answer(query: str, profile: dict, hits: list[Hit]) -> tuple[str, str]:
     metadata = profile["character_metadata"]
     pronoun = first_person_for(profile)
@@ -2617,6 +2719,10 @@ def answer_query(
             if intent_hits:
                 hits = intent_hits
             break
+    if is_classic_dien_bien_phu_query(query, profile):
+        classic_hits = select_classic_dien_bien_phu_hits(query, retriever, hits, top_k)
+        if classic_hits:
+            hits = classic_hits
     if has_uncovered_year_claim(query, hits):
         answer = (
             "Việc ấy chưa đủ chứng cứ để ta nhận là thật. Với câu hỏi nêu rõ năm, tên tướng hoặc địa danh, "
