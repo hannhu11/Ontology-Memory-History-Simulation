@@ -555,3 +555,12 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - probe trực tiếp Google Generative Language API trả HTTP `403 PERMISSION_DENIED` với thông điệp project bị denied access;
   - vì vậy final metadata hiện báo `llm_status=auth_error`, `route_source=deterministic`, `fallback_used=true` cho các câu acceptance. Đây là lỗi quyền/key/project phía Google, không phải lỗi RAG/router. Code đã degrade đúng: không crash, vẫn stream/trả local factual/retrieval answer chất lượng.
 - Lưu ý vận hành tiếp theo: muốn kích hoạt đầy đủ 2 Gemini calls/request, cần cấp lại project/key hợp lệ hoặc đặt `GEMINI_MODEL_NAME`/`GEMINI_ROUTER_MODEL_NAME` bằng model mà project được phép gọi; sau đó restart hai service app. Không dùng key PetHub cho History nếu chưa tách quyền và chủ đích vận hành rõ ràng.
+
+## Gemini/TTS key check ngày 2026-06-08
+
+- Kiểm tra production cho thấy `GOOGLE_TTS_API_KEY` hiện tại vẫn hoạt động: `tts_provider.synthesize("Xin chào", "ho_chi_minh")` trả `ok=True` và có `audioContent`.
+- `GEMINI_API_KEY` cũ của History/Ontology trả HTTP `403 PERMISSION_DENIED` với thông điệp project bị denied access.
+- Key Gemini mới do user cung cấp được Google nhận diện nhưng không sinh được token thật vì trả HTTP `429 RESOURCE_EXHAUSTED`: project hết prepaid credits. Key này không dùng được cho Google Cloud TTS; `texttospeech.googleapis.com/v1/text:synthesize` trả `401 UNAUTHENTICATED` nếu đưa key đó vào tham số `key`.
+- Đã thay riêng `GEMINI_API_KEY` trong `/home/ubuntu/history-ontology/quang_trung_web/.env` bằng key mới và restart `history-ontology-api.service`. Không thay `GOOGLE_TTS_API_KEY`.
+- Sau restart, production chat final metadata chuyển từ `llm_status=auth_error` sang `llm_status=quota_exhausted`, `route_source=deterministic`, `fallback_used=true`; local fallback/factual vẫn trả đúng, ví dụ `bac sinh nam bao nhieu` -> `19/5/1890`.
+- Kết luận vận hành: lỗi hiện tại của ontology là billing/quota Gemini (`429 RESOURCE_EXHAUSTED`), không phải TTS. Muốn chạy Gemini thật cần nạp prepaid credits hoặc dùng Gemini project/key khác còn quota.
