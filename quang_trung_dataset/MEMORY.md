@@ -564,3 +564,39 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
 - Đã thay riêng `GEMINI_API_KEY` trong `/home/ubuntu/history-ontology/quang_trung_web/.env` bằng key mới và restart `history-ontology-api.service`. Không thay `GOOGLE_TTS_API_KEY`.
 - Sau restart, production chat final metadata chuyển từ `llm_status=auth_error` sang `llm_status=quota_exhausted`, `route_source=deterministic`, `fallback_used=true`; local fallback/factual vẫn trả đúng, ví dụ `bac sinh nam bao nhieu` -> `19/5/1890`.
 - Kết luận vận hành: lỗi hiện tại của ontology là billing/quota Gemini (`429 RESOURCE_EXHAUSTED`), không phải TTS. Muốn chạy Gemini thật cần nạp prepaid credits hoặc dùng Gemini project/key khác còn quota.
+
+## Vertex AI ADC migration completed ngày 2026-06-09
+
+- Đã chuyển LLM runtime từ Gemini API key sang Vertex AI ADC bằng `google-genai`.
+- Commits chính:
+  - `68b6042` (`Add Vertex AI ADC LLM provider`): thêm `LLM_PROVIDER=vertex`, adapter `genai.Client(vertexai=True, project=..., location=...)`, `verify_vertex.py`, mock tests Vertex router/stream/error mapping.
+  - `de56c2d` (`Tune Vertex thinking budget`): đặt `VERTEX_THINKING_BUDGET=0` mặc định cho Vertex `gemini-2.5-flash`, tránh hidden thinking tokens ăn hết output và giảm latency/cost realtime.
+  - `1807192` (`Preserve spaces in streamed sanitizer`): sửa streaming sanitizer không `strip()` từng fragment, tránh dính chữ như `vềtrận`, thêm regression test giữ khoảng trắng token-boundary.
+- VPS setup:
+  - Cài `google-cloud-cli` bằng apt repo chính thức trên Ubuntu 24.04.
+  - Đã xác thực `gcloud auth login --no-launch-browser --update-adc` bằng tài khoản Google của user; không lưu mật khẩu trong code/log/repo.
+  - ADC file: `/home/ubuntu/.config/gcloud/application_default_credentials.json`, permission `0600`.
+  - Project thật có quyền trên Google là `project-8fbd66f4-2cd0-4a03-a50`; project ID trong prompt ban đầu có thêm ký tự cuối `8` và không truy cập được.
+  - Đã chạy `gcloud config set project project-8fbd66f4-2cd0-4a03-a50`, `gcloud auth application-default set-quota-project project-8fbd66f4-2cd0-4a03-a50`, `gcloud services enable aiplatform.googleapis.com`.
+- Production `.env` hiện dùng:
+  - `LLM_PROVIDER=vertex`
+  - `GOOGLE_CLOUD_PROJECT=project-8fbd66f4-2cd0-4a03-a50`
+  - `GOOGLE_CLOUD_LOCATION=us-central1`
+  - `GOOGLE_GENAI_USE_VERTEXAI=true`
+  - `GEMINI_MODEL_NAME=gemini-2.5-flash`
+  - `GEMINI_ROUTER_MODEL_NAME=gemini-2.5-flash`
+  - `VERTEX_THINKING_BUDGET=0`
+  - `GEMINI_API_KEY=` đã để trống vì không còn cần cho LLM Vertex.
+  - `GOOGLE_TTS_API_KEY` giữ nguyên vì TTS vẫn dùng REST API key và đã test OK.
+- Verification:
+  - `python quang_trung_web/verify_vertex.py` trên VPS pass: Vertex connection OK, `generate_content OK with model=gemini-2.5-flash: OK`.
+  - Production SSE `quang_trung` + `vua hãy kể trận Ngọc Hồi Đống Đa` -> `llm_status=ok`, `route_source=llm`, `fallback_used=false`, `mode=api`, citations đúng Ngọc Hồi/Đống Đa.
+  - Production SSE `vo_nguyen_giap` + `chien dich dien bien phu vi sao thang` -> `llm_status=ok`, `route_source=llm`, `fallback_used=false`, `mode=api`, citations `vng_kb_054/065/066/068`, không còn `trên không`.
+  - Factual exact vẫn giữ: HCM birth trả `19/5/1890`.
+  - TTS `tts_provider.synthesize("Xin chào", "ho_chi_minh")` -> `ok=True`, có audio base64.
+  - `history-ontology-api.service` active, health `ok=true`; local Next và hai domain History/PetHub HTTP 200.
+- Cleanup/security:
+  - Đã xóa `/tmp/history_gcloud_auth` và các script probe tạm trong `/tmp`.
+  - Đã xóa các `.env.backup.*` trên VPS vì chúng chứa runtime secrets.
+  - Targeted secret scan trên repo/docs/scripts không còn OAuth code, mật khẩu, Gemini key mới hay API key hardcoded. `.env` vẫn chứa TTS key vì runtime cần, không commit.
+  - User đã từng gửi mật khẩu Google trong chat; cần đổi mật khẩu đó bên ngoài hệ thống.
