@@ -15,7 +15,7 @@ const STATIC_ASSETS: Record<VisualEmotion | "angry_2", string> = {
 };
 
 const COMMON_STATIC_ASSETS = Object.values(STATIC_ASSETS).filter((filename) => filename !== STATIC_ASSETS.angry_2);
-const ASSET_CACHE_VERSION = "20260612-nguyen-trai";
+const ASSET_CACHE_VERSION = "20260612-all-character-assets-v2";
 
 const QUANG_TRUNG_ASSETS: Record<string, string> = {
   ...STATIC_ASSETS,
@@ -27,16 +27,13 @@ function assetUrl(characterId: string, filename: string) {
   return `/assets/${characterId}/${encodeURIComponent(filename)}?v=${ASSET_CACHE_VERSION}`;
 }
 
-function staticAssetFor(visual: CharacterVisual, characterId: string) {
+function staticAssetFor(visual: CharacterVisual) {
   if (visual.asset) return visual.asset;
-  if (characterId === "quang_trung" && visual.emotion === "angry" && visual.intent === "battle_detail") {
-    return STATIC_ASSETS.angry_2;
-  }
   return STATIC_ASSETS[visual.emotion] || STATIC_ASSETS.idle;
 }
 
-function normalizeAssetForCharacter(filename: string, characterId: string) {
-  if (characterId !== "quang_trung" && filename === STATIC_ASSETS.angry_2) return STATIC_ASSETS.angry;
+function normalizeAssetForCharacter(filename: string) {
+  if (filename === STATIC_ASSETS.angry_2) return STATIC_ASSETS.angry;
   return filename;
 }
 
@@ -110,12 +107,12 @@ function StaticPortrait({
   const currentAsset = useMemo(() => {
     const filename =
       visual.emotion !== "talking"
-        ? staticAssetFor(visual, character.character_id)
+        ? staticAssetFor(visual)
         : mouthOpen
           ? STATIC_ASSETS.talking
           : STATIC_ASSETS[baseEmotion] || STATIC_ASSETS.idle;
-    return normalizeAssetForCharacter(filename, character.character_id);
-  }, [baseEmotion, character.character_id, mouthOpen, visual]);
+    return normalizeAssetForCharacter(filename);
+  }, [baseEmotion, mouthOpen, visual]);
   const primarySrc = assetUrl(character.character_id, currentAsset);
 
   useEffect(() => {
@@ -182,7 +179,7 @@ export function CharacterViewer({
     if (!preloadCharacterId) return;
     const filenames =
       preloadCharacterId === "quang_trung"
-        ? [...COMMON_STATIC_ASSETS, STATIC_ASSETS.angry_2, QUANG_TRUNG_ASSETS.thinkingSheet, QUANG_TRUNG_ASSETS.attackSheet]
+        ? [...COMMON_STATIC_ASSETS, QUANG_TRUNG_ASSETS.thinkingSheet, QUANG_TRUNG_ASSETS.attackSheet]
         : COMMON_STATIC_ASSETS;
     const images = filenames.map((filename) => {
       const image = new Image();
