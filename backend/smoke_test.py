@@ -134,11 +134,17 @@ def main() -> None:
         assert "trên không" not in lowered_dien_bien
 
         os.environ["GEMINI_API_KEY"] = "fake-key"
+        old_fast_local = os.environ.get("FAST_LOCAL_RETRIEVAL")
+        os.environ["FAST_LOCAL_RETRIEVAL"] = "0"
         try:
             with patch("main.route_query_json", return_value={"ok": False, "llm_status": "quota_exhausted", "route": None}):
                 quota = final_answer_for(client, "vo_nguyen_giap", "chiến dịch điện biên phủ vì sao thắng")
         finally:
             os.environ["GEMINI_API_KEY"] = ""
+            if old_fast_local is None:
+                os.environ.pop("FAST_LOCAL_RETRIEVAL", None)
+            else:
+                os.environ["FAST_LOCAL_RETRIEVAL"] = old_fast_local
         assert quota["llm_status"] == "quota_exhausted"
         assert quota["fallback_used"] is True
         assert "Điện Biên Phủ" in quota["answer"]

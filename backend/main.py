@@ -362,8 +362,14 @@ def characters() -> dict:
     return {"characters": payload, "default_character_id": DEFAULT_CHARACTER_ID}
 
 
+def fast_local_retrieval_enabled() -> bool:
+    return os.getenv("FAST_LOCAL_RETRIEVAL", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def should_stream_with_gemini(query: str, profile: dict, result: dict, route_llm_status: str) -> bool:
     route_intent = str((result.get("route") or {}).get("intent", ""))
+    if fast_local_retrieval_enabled() and route_llm_status == "skipped" and result.get("mode") == "retrieval":
+        return False
     return (
         llm_is_configured()
         and route_llm_status not in {"quota_exhausted", "auth_error", "invalid_model", "not_configured"}
@@ -393,6 +399,8 @@ LOCAL_FIRST_INTENTS = {
     "death",
     "private_life",
     "anachronism_trap",
+    "history_battle",
+    "philosophy",
 }
 
 
@@ -401,7 +409,11 @@ def should_skip_llm_router(local_route: dict) -> bool:
         confidence = float(local_route.get("confidence", 0.0) or 0.0)
     except (TypeError, ValueError):
         confidence = 0.0
-    return str(local_route.get("intent", "")) in LOCAL_FIRST_INTENTS and confidence >= 0.8
+    intent = str(local_route.get("intent", ""))
+    if intent in {"history_battle", "philosophy"} and not fast_local_retrieval_enabled():
+        return False
+    threshold = 0.7 if intent in {"history_battle", "philosophy"} else 0.8
+    return intent in LOCAL_FIRST_INTENTS and confidence >= threshold
 
 
 def timing_payload(started_at: float, marks: dict[str, float], *keys: str) -> dict[str, int]:
