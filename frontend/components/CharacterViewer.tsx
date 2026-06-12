@@ -14,22 +14,29 @@ const STATIC_ASSETS: Record<VisualEmotion | "angry_2", string> = {
   sad: "sad.png",
 };
 
+const COMMON_STATIC_ASSETS = Object.values(STATIC_ASSETS).filter((filename) => filename !== STATIC_ASSETS.angry_2);
+
 const QUANG_TRUNG_ASSETS: Record<string, string> = {
   ...STATIC_ASSETS,
   thinkingSheet: "Quang Trung-hero_thinking.png",
   attackSheet: "Quang Trung-attack.png",
 };
 
-const PRELOAD_ASSETS = Object.values(STATIC_ASSETS);
-
 function assetUrl(characterId: string, filename: string) {
   return `/assets/${characterId}/${encodeURIComponent(filename)}`;
 }
 
-function staticAssetFor(visual: CharacterVisual) {
+function staticAssetFor(visual: CharacterVisual, characterId: string) {
   if (visual.asset) return visual.asset;
-  if (visual.emotion === "angry" && visual.intent === "battle_detail") return STATIC_ASSETS.angry_2;
+  if (characterId === "quang_trung" && visual.emotion === "angry" && visual.intent === "battle_detail") {
+    return STATIC_ASSETS.angry_2;
+  }
   return STATIC_ASSETS[visual.emotion] || STATIC_ASSETS.idle;
+}
+
+function normalizeAssetForCharacter(filename: string, characterId: string) {
+  if (characterId !== "quang_trung" && filename === STATIC_ASSETS.angry_2) return STATIC_ASSETS.angry;
+  return filename;
 }
 
 function safeBaseEmotion(emotion: CharacterVisual["baseEmotion"] | VisualEmotion | undefined) {
@@ -100,9 +107,14 @@ function StaticPortrait({
   const [failed, setFailed] = useState(false);
   const baseEmotion = safeBaseEmotion(visual.baseEmotion || visual.emotion);
   const currentAsset = useMemo(() => {
-    if (visual.emotion !== "talking") return staticAssetFor(visual);
-    return mouthOpen ? STATIC_ASSETS.talking : STATIC_ASSETS[baseEmotion] || STATIC_ASSETS.idle;
-  }, [baseEmotion, mouthOpen, visual]);
+    const filename =
+      visual.emotion !== "talking"
+        ? staticAssetFor(visual, character.character_id)
+        : mouthOpen
+          ? STATIC_ASSETS.talking
+          : STATIC_ASSETS[baseEmotion] || STATIC_ASSETS.idle;
+    return normalizeAssetForCharacter(filename, character.character_id);
+  }, [baseEmotion, character.character_id, mouthOpen, visual]);
   const primarySrc = assetUrl(character.character_id, currentAsset);
 
   useEffect(() => {
@@ -167,7 +179,11 @@ export function CharacterViewer({
 
   useEffect(() => {
     if (!preloadCharacterId) return;
-    const images = PRELOAD_ASSETS.map((filename) => {
+    const filenames =
+      preloadCharacterId === "quang_trung"
+        ? [...COMMON_STATIC_ASSETS, STATIC_ASSETS.angry_2, QUANG_TRUNG_ASSETS.thinkingSheet, QUANG_TRUNG_ASSETS.attackSheet]
+        : COMMON_STATIC_ASSETS;
+    const images = filenames.map((filename) => {
       const image = new Image();
       image.src = assetUrl(preloadCharacterId, filename);
       return image;
