@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Character, CharacterVisual, VisualEmotion } from "../types";
 
-const QUANG_TRUNG_ASSETS: Record<string, string> = {
+const STATIC_ASSETS: Record<VisualEmotion | "angry_2", string> = {
   idle: "idle.png",
   talking: "talking.png",
   thinking: "thinking.png",
@@ -12,9 +12,15 @@ const QUANG_TRUNG_ASSETS: Record<string, string> = {
   angry: "angry.png",
   angry_2: "angry_2.png",
   sad: "sad.png",
+};
+
+const QUANG_TRUNG_ASSETS: Record<string, string> = {
+  ...STATIC_ASSETS,
   thinkingSheet: "Quang Trung-hero_thinking.png",
   attackSheet: "Quang Trung-attack.png",
 };
+
+const PRELOAD_ASSETS = Object.values(STATIC_ASSETS);
 
 function assetUrl(characterId: string, filename: string) {
   return `/assets/${characterId}/${encodeURIComponent(filename)}`;
@@ -22,8 +28,8 @@ function assetUrl(characterId: string, filename: string) {
 
 function staticAssetFor(visual: CharacterVisual) {
   if (visual.asset) return visual.asset;
-  if (visual.emotion === "angry" && visual.intent === "battle_detail") return QUANG_TRUNG_ASSETS.angry_2;
-  return QUANG_TRUNG_ASSETS[visual.emotion] || QUANG_TRUNG_ASSETS.idle;
+  if (visual.emotion === "angry" && visual.intent === "battle_detail") return STATIC_ASSETS.angry_2;
+  return STATIC_ASSETS[visual.emotion] || STATIC_ASSETS.idle;
 }
 
 function safeBaseEmotion(emotion: CharacterVisual["baseEmotion"] | VisualEmotion | undefined) {
@@ -83,18 +89,21 @@ function SpriteSheet({
 }
 
 function StaticPortrait({
-  characterId,
+  character,
   visual,
 }: {
-  characterId: string;
+  character: Character;
   visual: CharacterVisual;
 }) {
   const [mouthOpen, setMouthOpen] = useState(false);
+  const [fallbackSrc, setFallbackSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const baseEmotion = safeBaseEmotion(visual.baseEmotion || visual.emotion);
   const currentAsset = useMemo(() => {
     if (visual.emotion !== "talking") return staticAssetFor(visual);
-    return mouthOpen ? QUANG_TRUNG_ASSETS.talking : QUANG_TRUNG_ASSETS[baseEmotion] || QUANG_TRUNG_ASSETS.idle;
+    return mouthOpen ? STATIC_ASSETS.talking : STATIC_ASSETS[baseEmotion] || STATIC_ASSETS.idle;
   }, [baseEmotion, mouthOpen, visual]);
+  const primarySrc = assetUrl(character.character_id, currentAsset);
 
   useEffect(() => {
     if (visual.emotion !== "talking") {
@@ -105,12 +114,42 @@ function StaticPortrait({
     return () => window.clearInterval(interval);
   }, [visual.emotion]);
 
+  useEffect(() => {
+    setFallbackSrc(null);
+    setFailed(false);
+  }, [primarySrc]);
+
+  const src = fallbackSrc || primarySrc;
+
+  if (failed) {
+    return (
+      <div className="flex h-full items-center justify-center text-center">
+        <div>
+          <div className="text-xl font-black uppercase text-[#e5bd3b]">{character.display_name}</div>
+          <div className="mt-2 text-sm font-bold uppercase tracking-[.12em] text-[#e5bd3b]">Simulacra</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <img
-      src={assetUrl(characterId, currentAsset)}
+      src={src}
       alt=""
       className="h-full w-full object-contain transition-opacity duration-300"
       draggable={false}
+      onError={() => {
+        const idleSrc = assetUrl(character.character_id, STATIC_ASSETS.idle);
+        if (src !== idleSrc) {
+          setFallbackSrc(idleSrc);
+          return;
+        }
+        if (character.portrait_url && src !== character.portrait_url) {
+          setFallbackSrc(character.portrait_url);
+          return;
+        }
+        setFailed(true);
+      }}
     />
   );
 }
@@ -124,6 +163,18 @@ export function CharacterViewer({
   visual: CharacterVisual;
   onMotionComplete?: () => void;
 }) {
+  const preloadCharacterId = character?.character_id;
+
+  useEffect(() => {
+    if (!preloadCharacterId) return;
+    const images = PRELOAD_ASSETS.map((filename) => {
+      const image = new Image();
+      image.src = assetUrl(preloadCharacterId, filename);
+      return image;
+    });
+    return () => images.forEach((image) => (image.src = ""));
+  }, [preloadCharacterId]);
+
   if (!character) {
     return (
       <div className="character-frame flex items-center justify-center text-center">
@@ -149,19 +200,9 @@ export function CharacterViewer({
           />
         ) : null}
         {isQuangTrung && motion === "none" ? (
-          <StaticPortrait characterId={character.character_id} visual={visual} />
+          <StaticPortrait character={character} visual={visual} />
         ) : null}
-        {!isQuangTrung && character.portrait_url ? (
-          <img src={character.portrait_url} alt="" className="h-full w-full object-contain" draggable={false} />
-        ) : null}
-        {!isQuangTrung && !character.portrait_url ? (
-          <div className="flex h-full items-center justify-center text-center">
-            <div>
-              <div className="text-xl font-black uppercase text-[#e5bd3b]">{character.display_name}</div>
-              <div className="mt-2 text-sm font-bold uppercase tracking-[.12em] text-[#e5bd3b]">Simulacra</div>
-            </div>
-          </div>
-        ) : null}
+        {!isQuangTrung ? <StaticPortrait character={character} visual={visual} /> : null}
       </div>
       <div className="character-visual-caption">
         {visual.motion === "thinking"

@@ -280,7 +280,7 @@ export default function Home() {
               appendAssistantText(assistantId, text);
             }
           },
-          onFinal: async (data) => {
+          onFinal: (data) => {
             if (useHistoryStore.getState().selectedCharacterId !== characterId) return;
             updateAssistant(assistantId, {
               content: data.answer,
@@ -289,20 +289,29 @@ export default function Home() {
               state: data.state,
               audioPending: true,
             });
-            setStatus("audio", "Đang tạo âm thanh nhập vai");
             const currentVisual = useHistoryStore.getState().visual;
             if (data.visual && currentVisual.motion !== "attack") {
               setVisual(data.visual);
             }
             setSending(false);
-            const audio = await synthesizeAudio(characterId, data.answer);
-            if (useHistoryStore.getState().selectedCharacterId !== characterId) return;
-            updateAssistant(assistantId, {
-              audioPending: false,
-              audioReady: audio.ok,
-              audioBase64: audio.audio_base64,
-            });
             setStatus("idle", "Sẵn sàng đối thoại");
+            void synthesizeAudio(characterId, data.answer)
+              .then((audio) => {
+                if (useHistoryStore.getState().selectedCharacterId !== characterId) return;
+                updateAssistant(assistantId, {
+                  audioPending: false,
+                  audioReady: audio.ok,
+                  audioBase64: audio.audio_base64,
+                });
+              })
+              .catch(() => {
+                if (useHistoryStore.getState().selectedCharacterId !== characterId) return;
+                updateAssistant(assistantId, {
+                  audioPending: false,
+                  audioReady: false,
+                  audioBase64: null,
+                });
+              });
           },
           onError: (message) => {
             if (useHistoryStore.getState().selectedCharacterId !== characterId) return;

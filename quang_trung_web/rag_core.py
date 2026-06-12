@@ -1591,7 +1591,11 @@ class VectorRetriever:
             shutil.rmtree(self.persist_dir)
 
     def _index_metadata_changed(self, previous: dict, current: dict) -> bool:
-        keys = ("fingerprint", "embedding_provider", "model_name", "dimension", "character_id")
+        previous_fingerprint = previous.get("fingerprint") or previous.get("dataset_fingerprint")
+        current_fingerprint = current.get("fingerprint") or current.get("dataset_fingerprint")
+        if previous_fingerprint != current_fingerprint:
+            return True
+        keys = ("embedding_provider", "model_name", "dimension", "character_id")
         return any(previous.get(key) != current.get(key) for key in keys)
 
     def _init_vector_backend(self) -> None:
@@ -1612,6 +1616,7 @@ class VectorRetriever:
             dimension = embedding_dimension(embedding_model)
             current_metadata = {
                 "fingerprint": fingerprint,
+                "dataset_fingerprint": fingerprint,
                 "embedding_provider": self.embedding_provider,
                 "model_name": self.model_name,
                 "dimension": dimension,

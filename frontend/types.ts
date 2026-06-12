@@ -47,6 +47,7 @@ export type StreamDiagnostics = {
   route_source?: string;
   llm_status?: string;
   fallback_used?: boolean;
+  timings_ms?: Record<string, number>;
 };
 
 export type ChatMessage = {

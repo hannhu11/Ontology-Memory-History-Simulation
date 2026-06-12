@@ -27,6 +27,7 @@ MAX_OUTPUT_TOKENS = 1400
 ROUTER_MAX_OUTPUT_TOKENS = 240
 DEFAULT_LLM_PROVIDER = "gemini_api"
 DEFAULT_VERTEX_LOCATION = "us-central1"
+DEFAULT_STREAM_MASK_TAIL_CHARS = 32
 
 FORBIDDEN_CHARACTER_TERMS = (
     "nguồn",
@@ -111,6 +112,15 @@ def configured_model() -> str:
 
 def configured_router_model() -> str:
     return os.getenv("GEMINI_ROUTER_MODEL_NAME", configured_model()).strip() or configured_model()
+
+
+def configured_stream_mask_tail_chars() -> int:
+    raw_value = os.getenv("STREAM_MASK_TAIL_CHARS", str(DEFAULT_STREAM_MASK_TAIL_CHARS)).strip()
+    try:
+        value = int(raw_value)
+    except ValueError:
+        value = DEFAULT_STREAM_MASK_TAIL_CHARS
+    return max(12, min(value, 96))
 
 
 def configured_google_cloud_project() -> str:
@@ -291,8 +301,9 @@ def sanitize_generated_text(text: str, profile: dict, strip: bool = True) -> str
     return cleaned.strip() if strip else cleaned
 
 
-def stream_sanitized_chunks(chunks: Iterable[str], profile: dict, tail_size: int = 96) -> Iterator[str]:
+def stream_sanitized_chunks(chunks: Iterable[str], profile: dict, tail_size: int | None = None) -> Iterator[str]:
     """Mask self-name leaks before chunks are sent over SSE."""
+    tail_size = configured_stream_mask_tail_chars() if tail_size is None else tail_size
     buffer = ""
     for chunk in chunks:
         if not chunk:

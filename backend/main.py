@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -383,8 +384,40 @@ def tokenized_fallback(answer: str) -> Iterator[str]:
         yield word
 
 
+LOCAL_FIRST_INTENTS = {
+    "smalltalk",
+    "identity",
+    "birth",
+    "origin",
+    "real_name",
+    "death",
+    "private_life",
+    "anachronism_trap",
+}
+
+
+def should_skip_llm_router(local_route: dict) -> bool:
+    try:
+        confidence = float(local_route.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return str(local_route.get("intent", "")) in LOCAL_FIRST_INTENTS and confidence >= 0.8
+
+
+def timing_payload(started_at: float, marks: dict[str, float], *keys: str) -> dict[str, int]:
+    payload: dict[str, int] = {}
+    for key in keys:
+        value = marks.get(key)
+        if value is not None:
+            payload[f"{key}_ms"] = int((value - started_at) * 1000)
+    payload["total_ms"] = int((time.perf_counter() - started_at) * 1000)
+    return payload
+
+
 def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
     try:
+        started_at = time.perf_counter()
+        marks: dict[str, float] = {}
         character_id = request.character_id if request.character_id in CHARACTER_REGISTRY else DEFAULT_CHARACTER_ID
         profile, retriever = runtime.get(character_id)
         query = request.message.strip()
@@ -398,21 +431,30 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
             },
         )
 
-        router_response = route_query_json(query, profile) if llm_is_configured() else {
-            "ok": False,
-            "llm_status": "not_configured",
-            "route": None,
-        }
-        if router_response.get("ok") and router_response.get("route"):
-            route = router_response["route"]
-            route["source"] = "llm"
-            route_source = "llm"
-            route_llm_status = "ok"
-        else:
-            route = local_route_query(query, profile)
+        local_route = local_route_query(query, profile)
+        if should_skip_llm_router(local_route) or not llm_is_configured():
+            router_response = {
+                "ok": False,
+                "llm_status": "skipped" if llm_is_configured() else "not_configured",
+                "route": None,
+            }
+            route = local_route
             route_source = "deterministic"
-            route_llm_status = str(router_response.get("llm_status", "router_fallback"))
+            route_llm_status = str(router_response["llm_status"])
+        else:
+            router_response = route_query_json(query, profile)
+            if router_response.get("ok") and router_response.get("route"):
+                route = router_response["route"]
+                route["source"] = "llm"
+                route_source = "llm"
+                route_llm_status = "ok"
+            else:
+                route = local_route
+                route_source = "deterministic"
+                route_llm_status = str(router_response.get("llm_status", "router_fallback"))
+        marks["route"] = time.perf_counter()
         result = answer_query(query, profile, retriever, generator=None, route=route)
+        marks["retrieval"] = time.perf_counter()
         citations = [public_citation(chunk) for chunk in result.get("citations", [])]
         fallback_used = bool(result.get("fallback_used", False))
         llm_status = route_llm_status
@@ -426,6 +468,7 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 "route_source": route_source,
                 "llm_status": llm_status,
                 "fallback_used": fallback_used,
+                "timings_ms": timing_payload(started_at, marks, "route", "retrieval"),
             },
         )
 
@@ -448,6 +491,8 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
             try:
                 for token in stream_fused_generation(query, profile, result.get("citations", []), route=route):
                     emitted_stream = True
+                    if "first_token" not in marks:
+                        marks["first_token"] = time.perf_counter()
                     collected.append(token)
                     yield sse_event("token", {"text": token})
                 raw_answer = "".join(collected).strip()
@@ -461,13 +506,18 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 fallback_used = True
             if not emitted_stream:
                 for token in tokenized_fallback(fallback_answer):
+                    if "first_token" not in marks:
+                        marks["first_token"] = time.perf_counter()
                     yield sse_event("token", {"text": token})
                 final_answer = fallback_answer
         else:
             fallback_used = True
             for token in tokenized_fallback(fallback_answer):
+                if "first_token" not in marks:
+                    marks["first_token"] = time.perf_counter()
                 yield sse_event("token", {"text": token})
 
+        marks["final"] = time.perf_counter()
         yield sse_event(
             "final",
             {
@@ -479,6 +529,7 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 "route_source": route_source,
                 "llm_status": llm_status,
                 "fallback_used": fallback_used,
+                "timings_ms": timing_payload(started_at, marks, "route", "retrieval", "first_token", "final"),
                 "visual": visual_payload(query, final_answer, profile, {**result, "mode": mode}, citations, phase="answering"),
             },
         )

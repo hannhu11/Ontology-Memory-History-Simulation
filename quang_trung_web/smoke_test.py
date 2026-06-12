@@ -216,6 +216,9 @@ def validate_streaming_mask() -> None:
     spaced = "".join(stream_sanitized_chunks(["Tôi nói về ", "trận đánh này."], profile, tail_size=4))
     if "vềtrận" in spaced or "về trận" not in spaced:
         raise AssertionError(f"Streaming mask should preserve token-boundary spaces: {spaced}")
+    default_emits = list(stream_sanitized_chunks(["A" * 40], profile))
+    if len(default_emits) < 2:
+        raise AssertionError("Default streaming mask tail should emit before holding a 96-character buffer")
 
 
 def validate_vertex_provider_mocks() -> None:
@@ -303,6 +306,8 @@ def validate_index_metadata_rebuild_guard() -> None:
                 metadata = json.loads((persist_dir / "metadata.json").read_text(encoding="utf-8"))
                 if metadata["embedding_provider"] != "local":
                     raise AssertionError("Index metadata should be rewritten for local provider")
+                if metadata.get("dataset_fingerprint") != metadata.get("fingerprint"):
+                    raise AssertionError("Index metadata should include dataset_fingerprint alias")
                 if int(metadata["dimension"]) == 768:
                     raise AssertionError("Index dimension should not preserve stale Gemini dimension")
                 if (persist_dir / "stale.txt").exists():

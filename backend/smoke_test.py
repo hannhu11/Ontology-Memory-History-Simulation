@@ -48,6 +48,8 @@ def final_answer_for(client: TestClient, character_id: str, message: str) -> dic
     assert "llm_status" in final
     assert "fallback_used" in final
     assert "route_source" in final
+    assert "timings_ms" in final
+    assert "total_ms" in final["timings_ms"]
     assert final["visual"]["emotion"] in {"idle", "thinking", "talking", "happy", "angry", "sad", "confused"}
     return final
 
@@ -104,6 +106,8 @@ def main() -> None:
         assert "19/5/1890" in hcm_birth["answer"]
         assert "5/6/1911" not in hcm_birth["answer"]
         assert hcm_birth["mode"] == "factual"
+        assert hcm_birth["route_source"] == "deterministic"
+        assert hcm_birth["llm_status"] == "not_configured"
         assert hcm_birth["visual"]["intent"] == "identity"
 
         thd_birth = final_answer_for(client, "tran_hung_dao", "đại vương sinh năm bao nhiêu")
