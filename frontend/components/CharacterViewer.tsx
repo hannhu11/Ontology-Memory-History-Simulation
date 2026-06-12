@@ -15,6 +15,7 @@ const STATIC_ASSETS: Record<VisualEmotion | "angry_2", string> = {
 };
 
 const COMMON_STATIC_ASSETS = Object.values(STATIC_ASSETS).filter((filename) => filename !== STATIC_ASSETS.angry_2);
+const ASSET_CACHE_VERSION = "20260612-nguyen-trai";
 
 const QUANG_TRUNG_ASSETS: Record<string, string> = {
   ...STATIC_ASSETS,
@@ -23,7 +24,7 @@ const QUANG_TRUNG_ASSETS: Record<string, string> = {
 };
 
 function assetUrl(characterId: string, filename: string) {
-  return `/assets/${characterId}/${encodeURIComponent(filename)}`;
+  return `/assets/${characterId}/${encodeURIComponent(filename)}?v=${ASSET_CACHE_VERSION}`;
 }
 
 function staticAssetFor(visual: CharacterVisual, characterId: string) {
