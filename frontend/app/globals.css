@@ -89,6 +89,42 @@ button {
   background: linear-gradient(90deg, var(--kinpaku), #87c89c, var(--patina));
 }
 
+.quality-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.22rem 0.58rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.quality-badge-excellent {
+  background: rgba(14, 118, 92, 0.14);
+  color: #075a44;
+  border: 1px solid rgba(14, 118, 92, 0.36);
+}
+
+.quality-badge-strong {
+  background: rgba(37, 183, 166, 0.14);
+  color: #0a625b;
+  border: 1px solid rgba(37, 183, 166, 0.34);
+}
+
+.quality-badge-medium {
+  background: rgba(229, 189, 59, 0.18);
+  color: #70510a;
+  border: 1px solid rgba(150, 112, 18, 0.3);
+}
+
+.quality-badge-weak {
+  background: rgba(157, 49, 39, 0.12);
+  color: #8f221b;
+  border: 1px solid rgba(157, 49, 39, 0.28);
+}
+
 .character-frame {
   display: flex;
   flex-direction: column;

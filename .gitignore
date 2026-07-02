@@ -19,6 +19,9 @@ frontend/.turbo/
 *.log
 streamlit.out.log
 streamlit.err.log
+backend/logs/
+backend/benchmark_results*.json
+backend/benchmark_results*.csv
 
 .playwright-mcp/
 .cache/

@@ -1,14 +1,99 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Bot, Pause, Play, RotateCcw, UserRound } from "lucide-react";
+import { ArrowUp, Bot, Pause, Play, RotateCcw, ShieldCheck, UserRound } from "lucide-react";
 import { CharacterViewer } from "../components/CharacterViewer";
-import { citationKey, fetchCharacters, streamChat, synthesizeAudio } from "../lib/api";
+import { citationKey, fetchCharacters, sendFeedback, streamChat, synthesizeAudio } from "../lib/api";
 import { activeCharacter, summarizeCitations, useHistoryStore } from "../lib/store";
-import type { ChatMessage, Citation } from "../types";
+import type { ChatMessage, Citation, StreamDiagnostics } from "../types";
 
 function newId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function confidenceLabel(value?: number) {
+  if (value === undefined) return "Chưa đo";
+  if (value >= 85) return "Rất cao";
+  if (value >= 65) return "Cao";
+  if (value >= 45) return "Trung bình";
+  return "Cần kiểm chứng";
+}
+
+function citationQuality(citation: Citation) {
+  const tier = citation.source_tier ?? 3;
+  const score = citation.source_quality_score ?? ({ 1: 1, 2: 0.78, 3: 0.55, 4: 0.25 }[tier] ?? 0.55);
+  if (tier <= 1 || score >= 0.9) return { label: "Rất cao", tone: "excellent", note: "Nguồn chính thống / tư liệu gốc" };
+  if (tier === 2 || score >= 0.72) return { label: "Cao", tone: "strong", note: "Nguồn học thuật / nghiên cứu" };
+  if (tier === 3 || score >= 0.48) return { label: "Trung bình", tone: "medium", note: "Nguồn phổ thông / cần đọc kèm bối cảnh" };
+  return { label: "Cần kiểm chứng", tone: "weak", note: "Nguồn yếu hoặc cần đối chiếu thêm" };
+}
+
+function tierLabel(tier?: number) {
+  return {
+    1: "Tier 1 · Chính thống",
+    2: "Tier 2 · Học thuật",
+    3: "Tier 3 · Phổ thông",
+    4: "Tier 4 · Cần đối chiếu",
+  }[tier || 3];
+}
+
+function isNonRag(diagnostics?: StreamDiagnostics) {
+  return diagnostics?.variant === "non_rag" || diagnostics?.route_source === "non_rag";
+}
+
+function evidenceMessage(diagnostics?: StreamDiagnostics, citations?: Citation[]) {
+  if (isNonRag(diagnostics)) {
+    return "Không áp dụng citation vì đây là baseline không truy xuất tư liệu. Kết quả dùng để đối chiếu nguy cơ hallucination với RAG.";
+  }
+  const count = citations?.length || 0;
+  const strongRatio = diagnostics?.source_summary?.strong_source_ratio ?? 0;
+  if (!count) return "Chưa có citation để đối chiếu. Nên kiểm chứng trước khi dùng trong báo cáo.";
+  if (strongRatio >= 0.66) return "Câu trả lời có nền nguồn tốt, phù hợp để đối chiếu trong demo và báo cáo.";
+  if (strongRatio >= 0.34) return "Có citation nhưng tỷ lệ nguồn mạnh chưa cao. Nên đọc thêm các tư liệu đi kèm.";
+  return "Citation hiện còn yếu. Nên xem đây là câu trả lời cần kiểm chứng thêm.";
+}
+
+function EvidenceQualityPanel({ diagnostics, citations }: { diagnostics?: StreamDiagnostics; citations?: Citation[] }) {
+  if (!diagnostics && !citations?.length) return null;
+  const nonRag = isNonRag(diagnostics);
+  const confidence = nonRag ? undefined : diagnostics?.grounding_confidence;
+  const sourceSummary = diagnostics?.source_summary;
+  const latency = diagnostics?.timings_ms?.total_ms;
+  const strongRatio = nonRag ? 0 : Math.round((sourceSummary?.strong_source_ratio || 0) * 100);
+  const level = nonRag ? "Không áp dụng" : confidenceLabel(confidence);
+
+  return (
+    <div className={`mt-4 rounded-xl border p-4 ${nonRag ? "border-[rgba(255,184,107,.35)] bg-[rgba(255,184,107,.08)]" : "border-[rgba(37,183,166,.28)] bg-[rgba(37,183,166,.07)]"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[.14em] text-[#25b7a6]">
+            <ShieldCheck size={15} /> Evidence Quality
+          </div>
+          <div className="mt-2 text-2xl font-black text-[#f6f0e4]">{level}</div>
+        </div>
+        <span className="rounded-full border border-[rgba(246,240,228,.14)] px-3 py-1 text-xs font-black uppercase tracking-[.12em] text-[#e5bd3b]">
+          {nonRag ? "Non-RAG baseline" : "RAG + citation"}
+        </span>
+      </div>
+
+      <p className="mt-3 text-sm leading-6 text-[rgba(246,240,228,.78)]">{evidenceMessage(diagnostics, citations)}</p>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg bg-[rgba(246,240,228,.05)] p-3">
+          <div className="text-xs font-bold uppercase tracking-[.12em] text-muted">Grounding</div>
+          <div className="mt-1 text-xl font-black text-[#f6f0e4]">{nonRag ? "—" : `${confidence ?? "?"}%`}</div>
+        </div>
+        <div className="rounded-lg bg-[rgba(246,240,228,.05)] p-3">
+          <div className="text-xs font-bold uppercase tracking-[.12em] text-muted">Nguồn mạnh</div>
+          <div className="mt-1 text-xl font-black text-[#f6f0e4]">{nonRag ? "—" : `${strongRatio}%`}</div>
+        </div>
+        <div className="rounded-lg bg-[rgba(246,240,228,.05)] p-3">
+          <div className="text-xs font-bold uppercase tracking-[.12em] text-muted">Độ trễ</div>
+          <div className="mt-1 text-xl font-black text-[#f6f0e4]">{latency ? `${latency}ms` : "đang đo"}</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CitationList({ citations }: { citations?: Citation[] }) {
@@ -19,30 +104,40 @@ function CitationList({ citations }: { citations?: Citation[] }) {
         Tư liệu đối chiếu · {citations.length}
       </summary>
       <div className="space-y-3 px-4 pb-4">
-        {citations.map((citation, index) => (
-          <article
-            key={citationKey(citation, index)}
-            className="rounded-md border-l-4 border-[#9d3127] bg-[#fbf3df] px-4 py-3 text-[#2b2119]"
-          >
-            <div className="font-semibold">
-              {index + 1}. {citation.source_title}
-            </div>
-            <div className="mt-1 text-sm">Niên đại tài liệu: {citation.source_year || "không rõ"}</div>
-            <div className="text-sm">Mức độ nhận định: {citation.claim_status}</div>
-            <div className="text-sm">Đoạn tư liệu: {citation.chunk_id}</div>
-            {citation.fact ? <p className="mt-2 text-sm leading-relaxed">{citation.fact}</p> : null}
-            {citation.source_url ? (
-              <a
-                href={citation.source_url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-block text-sm font-semibold text-[#075ca8] underline"
-              >
-                Mở tư liệu
-              </a>
-            ) : null}
-          </article>
-        ))}
+        {citations.map((citation, index) => {
+          const quality = citationQuality(citation);
+          return (
+            <article
+              key={citationKey(citation, index)}
+              className="rounded-md border-l-4 border-[#9d3127] bg-[#fbf3df] px-4 py-3 text-[#2b2119]"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="font-semibold">
+                  {index + 1}. {citation.source_title}
+                </div>
+                <span className={`quality-badge quality-badge-${quality.tone}`}>{quality.label}</span>
+              </div>
+              <div className="mt-2 text-xs font-bold uppercase tracking-[.1em] text-[#6b4c2a]">
+                {tierLabel(citation.source_tier)}
+              </div>
+              <div className="mt-1 text-sm">Niên đại tài liệu: {citation.source_year || "không rõ"}</div>
+              <div className="text-sm">Mức độ nhận định: {citation.claim_status}</div>
+              <div className="text-sm">Đoạn tư liệu: {citation.chunk_id}</div>
+              <div className="mt-1 text-xs text-[#6b4c2a]">{quality.note}</div>
+              {citation.fact ? <p className="mt-2 text-sm leading-relaxed">{citation.fact}</p> : null}
+              {citation.source_url ? (
+                <a
+                  href={citation.source_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-block text-sm font-semibold text-[#075ca8] underline"
+                >
+                  Mở tư liệu
+                </a>
+              ) : null}
+            </article>
+          );
+        })}
       </div>
     </details>
   );
@@ -126,12 +221,19 @@ function MessageBubble({
   message,
   onAudioPlay,
   onAudioStop,
+  onFeedback,
 }: {
   message: ChatMessage;
   onAudioPlay?: () => void;
   onAudioStop?: () => void;
+  onFeedback?: (messageId: string, rating: string) => void;
 }) {
   const isUser = message.role === "user";
+  const feedbackOptions = [
+    ["faithful", "Nguồn phù hợp"],
+    ["missing-citation", "Nguồn chưa thuyết phục"],
+    ["hallucination", "Có dấu hiệu sai"],
+  ] as const;
   return (
     <div className={`flex gap-3 ${isUser ? "items-start" : "items-start"}`}>
       <div
@@ -159,7 +261,28 @@ function MessageBubble({
         {message.audioReady && message.audioBase64 ? (
           <AudioPlayer audioBase64={message.audioBase64} onAudioPlay={onAudioPlay} onAudioStop={onAudioStop} />
         ) : null}
-        {!isUser ? <CitationList citations={message.citations} /> : null}
+        {!isUser ? (
+          <>
+            <EvidenceQualityPanel diagnostics={message.diagnostics} citations={message.citations} />
+            <CitationList citations={message.citations} />
+            {message.content ? (
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span className="mr-1 font-bold uppercase tracking-[.12em]">Phản hồi</span>
+                {feedbackOptions.map(([rating, label]) => (
+                  <button
+                    key={rating}
+                    type="button"
+                    disabled={Boolean(message.feedbackSent)}
+                    onClick={() => onFeedback?.(message.id, rating)}
+                    className="rounded-full border border-[rgba(229,189,59,.18)] px-3 py-1 text-[rgba(246,240,228,.82)] transition hover:border-[#e5bd3b] hover:bg-[rgba(229,189,59,.08)] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {message.feedbackSent === rating ? "Đã ghi nhận" : label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -188,6 +311,7 @@ export default function Home() {
     clearChat,
   } = useHistoryStore();
   const [input, setInput] = useState("");
+  const [variant, setVariant] = useState<"rag" | "non_rag">("rag");
   const [loadError, setLoadError] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -267,6 +391,7 @@ export default function Home() {
               citations: data.citations,
               mode: data.mode,
               state: data.state,
+              diagnostics: data,
             });
             setStatus("answering", summarizeCitations(data.citations));
           },
@@ -287,6 +412,7 @@ export default function Home() {
               citations: data.citations,
               mode: data.mode,
               state: data.state,
+              diagnostics: data,
               audioPending: true,
             });
             const currentVisual = useHistoryStore.getState().visual;
@@ -321,6 +447,7 @@ export default function Home() {
           },
         },
         controller.signal,
+        variant,
       );
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -328,6 +455,16 @@ export default function Home() {
       updateAssistant(assistantId, { content: message });
       setStatus("error", message);
       setSending(false);
+    }
+  };
+
+  const handleFeedback = async (messageId: string, rating: string) => {
+    const characterId = selected?.character_id || selectedCharacterId;
+    updateAssistant(messageId, { feedbackSent: rating });
+    try {
+      await sendFeedback({ message_id: messageId, character_id: characterId, rating });
+    } catch {
+      updateAssistant(messageId, { feedbackSent: undefined });
     }
   };
 
@@ -349,6 +486,30 @@ export default function Home() {
             ))}
           </select>
         </div>
+
+        <section className="rounded-lg border border-[rgba(229,189,59,.18)] bg-[rgba(246,240,228,.05)] p-4">
+          <div className="mb-3 text-xs font-bold uppercase tracking-[.14em] text-[#d7b458]">Chế độ kiểm thử</div>
+          <div className="grid gap-2">
+            {[
+              ["rag", "RAG có trích dẫn", "Truy xuất tư liệu rồi trả lời."],
+              ["non_rag", "Non-RAG baseline", "Không truy xuất, dùng để so sánh."],
+            ].map(([value, label, description]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setVariant(value as "rag" | "non_rag")}
+                className={`rounded-md border px-3 py-3 text-left transition ${
+                  variant === value
+                    ? "border-[#e5bd3b] bg-[rgba(229,189,59,.14)]"
+                    : "border-[rgba(229,189,59,.14)] bg-[rgba(246,240,228,.04)] hover:border-[rgba(229,189,59,.36)]"
+                }`}
+              >
+                <div className="text-sm font-bold text-[#f6f0e4]">{label}</div>
+                <div className="mt-1 text-xs leading-5 text-muted">{description}</div>
+              </button>
+            ))}
+          </div>
+        </section>
 
         <section>
           <h2 className="mb-3 text-xl font-bold text-[#f6f0e4]">Kịch bản gài bẫy</h2>
@@ -393,6 +554,7 @@ export default function Home() {
                   message={message}
                   onAudioPlay={message.role === "assistant" && message.id === latestAssistantId ? beginSpeaking : undefined}
                   onAudioStop={message.role === "assistant" && message.id === latestAssistantId ? endSpeaking : undefined}
+                  onFeedback={handleFeedback}
                 />
               ))}
             </div>

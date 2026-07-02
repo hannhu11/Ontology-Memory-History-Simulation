@@ -600,3 +600,40 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - Đã xóa các `.env.backup.*` trên VPS vì chúng chứa runtime secrets.
   - Targeted secret scan trên repo/docs/scripts không còn OAuth code, mật khẩu, Gemini key mới hay API key hardcoded. `.env` vẫn chứa TTS key vì runtime cần, không commit.
   - User đã từng gửi mật khẩu Google trong chat; cần đổi mật khẩu đó bên ngoài hệ thống.
+
+## RAG vs Non-RAG benchmark integration ngày 2026-07-02
+
+- Đã tích hợp chọn lọc phần Duy thêm trong `MLN111_cua_duy`, không copy đè full project/folder vì backend local của Duy có thể xung đột với repo production.
+- Files mới giữ lại trong repo chính:
+  - `backend/eval_cases.json`: 100 prompt benchmark cho 5 nhân vật, chia nhóm factual date, identity trap, anachronism, private life, battle detail, contested claim, persona leakage, unsupported speculation.
+  - `backend/eval_schema.md`: schema và quy tắc viết eval case.
+  - `backend/validate_eval_cases.py`: validate UTF-8, đủ field, đúng 100 case và đúng phân bổ category.
+  - `backend/evaluator.py`: chạy `/api/chat/stream` qua FastAPI TestClient để so sánh `rag` và `non_rag`, xuất JSON/CSV benchmark.
+  - `backend/metrics.py`: tính expected fact score, hallucination marker, refusal accuracy, persona consistency, retrieval precision@4, citation faithfulness, grounding confidence.
+  - `backend/interaction_logger.py`: log tương tác/feedback dạng JSONL, hash `session_id`, không ghi API key.
+- Backend `backend/main.py` đã thêm:
+  - request field `variant=rag|non_rag`;
+  - Non-RAG baseline thật: không gọi retrieval/citation, nhưng nếu LLM configured thì vẫn stream `stream_fused_generation()` với citations rỗng; nếu LLM lỗi/chưa có key thì dùng local fallback bank nhập vai;
+  - SSE `retrieval` và `final` có `source_summary`, `grounding_confidence`, `variant`, `timings_ms`;
+  - endpoints `GET /api/metrics/summary` và `POST /api/feedback`.
+- Frontend đã thêm:
+  - selector `RAG có trích dẫn` / `Non-RAG baseline`;
+  - Evidence Quality Panel trên mỗi câu trả lời assistant;
+  - badge chất lượng nguồn theo `source_tier`/`source_quality_score`;
+  - feedback buttons `Nguồn phù hợp`, `Nguồn chưa thuyết phục`, `Có dấu hiệu sai`;
+  - TTS vẫn fire-and-forget sau final, không chặn text stream.
+- Duy evaluator ban đầu ép `LLM_PROVIDER=gemini_api`; đã gỡ để repo chính dùng đúng `.env` hiện tại, gồm cả Vertex production.
+- Runtime output bị ignore, không commit:
+  - `backend/logs/`
+  - `backend/benchmark_results*.json`
+  - `backend/benchmark_results*.csv`
+- Local tests ngày 2026-07-02:
+  - `python -m py_compile backend/main.py backend/evaluator.py backend/metrics.py backend/interaction_logger.py backend/validate_eval_cases.py backend/smoke_test.py quang_trung_web/rag_core.py quang_trung_web/llm_provider.py` -> pass.
+  - `python -X utf8 backend/validate_eval_cases.py` -> `eval_cases.json valid: 100 cases`.
+  - `python backend/smoke_test.py` -> pass.
+  - `python quang_trung_web/smoke_test.py` -> pass.
+  - `cd frontend && npm run build` -> pass.
+  - Local `llm_configured=False`, provider `gemini_api`; full evaluator 100 cases không đốt Gemini, đo pipeline local/fallback:
+    - RAG: hallucination_rate `0.19`, expected_fact_score `0.805`, citation_faithfulness `0.811`, mean_grounding_confidence `59.76`.
+    - Non-RAG: hallucination_rate `0.25`, expected_fact_score `0.735`, citation_faithfulness `null`, mean_grounding_confidence `0.0`.
+- Sau deploy cần chạy evaluator nhỏ trên VPS để xác nhận production Vertex/ADC: `python -X utf8 backend/evaluator.py --variants rag,non_rag --limit 5 --out /tmp/history_benchmark.json --csv /tmp/history_benchmark.csv`.

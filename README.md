@@ -84,6 +84,22 @@ Backend hiện dùng luồng fused CRAG tối đa 2 Gemini/Vertex calls cho mỗ
 - Streaming mask ở backend sửa tự xưng ngôi ba và chặn thuật ngữ hệ thống trước khi yield token qua SSE.
 - Chroma index ghi metadata `embedding_provider`, `model_name`, `dimension`, `fingerprint`, `character_id`; đổi `RAG_EMBEDDING_PROVIDER` hoặc model sẽ wipe/rebuild riêng index nhân vật để tránh dimension mismatch.
 
+## Benchmark RAG vs Non-RAG
+
+Backend có bộ đánh giá 100 prompt trong `backend/eval_cases.json` để so sánh câu trả lời có truy xuất tư liệu với baseline không truy xuất:
+
+```powershell
+python -X utf8 backend\validate_eval_cases.py
+python -X utf8 backend\evaluator.py --variants rag,non_rag --out backend\benchmark_results.local.json --csv backend\benchmark_results.local.csv
+```
+
+`variant=rag` dùng retrieval/citation như production. `variant=non_rag` không truyền citation vào generator, dùng để đo nguy cơ hallucination khi bỏ RAG. UI hiện có selector hai chế độ, Evidence Quality Panel, feedback buttons và endpoint metrics:
+
+- `GET /api/metrics/summary`
+- `POST /api/feedback`
+
+Các file runtime `backend/logs/` và `backend/benchmark_results*` bị ignore, không commit.
+
 ## Vertex AI ADC production
 
 Trên VPS, không dùng Service Account JSON. Cài `gcloud`, đăng nhập ADC bằng tài khoản có quyền Vertex AI và cấu hình:
