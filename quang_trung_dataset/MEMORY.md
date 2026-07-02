@@ -638,3 +638,31 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
     - RAG: hallucination_rate `0.19`, expected_fact_score `0.805`, citation_faithfulness `0.811`, mean_grounding_confidence `59.76`.
     - Non-RAG: hallucination_rate `0.25`, expected_fact_score `0.735`, citation_faithfulness `null`, mean_grounding_confidence `0.0`.
 - Sau deploy cần chạy evaluator nhỏ trên VPS để xác nhận production Vertex/ADC: `python -X utf8 backend/evaluator.py --variants rag,non_rag --limit 5 --out /tmp/history_benchmark.json --csv /tmp/history_benchmark.csv`.
+
+## Deploy RAG vs Non-RAG benchmark tooling hoàn tất ngày 2026-07-02
+
+- Commits:
+  - `43a1164` (`Add RAG benchmark evidence tooling`): thêm eval dataset/evaluator/metrics/logger, backend variant `rag|non_rag`, SSE diagnostics, Evidence Quality UI, feedback buttons.
+  - `f74670a` (`Fix benchmark fallback metadata`): sửa `fallback_used` để RAG retrieval local có `llm_status=skipped` vì tối ưu tốc độ không bị coi là API fallback.
+- Production `/home/ubuntu/history-ontology` đã pull tới `f74670a`, chạy:
+  - `python -m py_compile backend/main.py backend/evaluator.py backend/metrics.py backend/interaction_logger.py backend/validate_eval_cases.py backend/smoke_test.py quang_trung_web/rag_core.py quang_trung_web/llm_provider.py` -> pass.
+  - `python -X utf8 backend/validate_eval_cases.py` -> `eval_cases.json valid: 100 cases`.
+  - `python backend/smoke_test.py` -> pass.
+  - `cd frontend && npm run build` -> pass.
+  - restart `history-ontology-api.service` và `history-ontology-web.service`; không sửa Nginx/PetHub.
+- Production health:
+  - `http://127.0.0.1:8601/api/health`: `ok=true`, đủ 5 nhân vật, `llm_configured=true`.
+  - `http://172.19.0.1:8501`: HTTP 200.
+  - `https://history-simulation-ai.online/`: HTTP/2 200.
+  - `https://pethubvn.store/`: HTTP/2 200, không bị ảnh hưởng.
+- Production SSE direct check với `quang_trung`, prompt `vua hay ke tran Ngoc Hoi Dong Da`:
+  - `variant=rag`: `mode=retrieval`, `llm_status=skipped`, `route_source=deterministic`, `fallback_used=false`, `grounding=80`, citations `qt_kb_094/026/093/092`.
+  - `variant=non_rag`: `mode=non_rag`, `llm_status=ok`, `fallback_used=false`, `grounding=0`, citations rỗng.
+- Production evaluator nhỏ `--limit 5`:
+  - RAG: hallucination_rate `0.2`, expected_fact_score `0.8`, citation_faithfulness `1.0`, mean_grounding_confidence `78.4`, mean_latency_ms khoảng `1201`.
+  - Non-RAG: hallucination_rate `0.8`, expected_fact_score `0.2`, citation_faithfulness `null`, mean_grounding_confidence `0.0`, mean_latency_ms khoảng `1464`.
+- Browser production bằng Playwright:
+  - selector `Chế độ kiểm thử` hiển thị đủ `RAG có trích dẫn` và `Non-RAG baseline`;
+  - gửi câu Ngọc Hồi - Đống Đa qua UI trả lời đúng, Evidence Quality Panel xuất hiện;
+  - console không warning/error.
+- VPS vẫn còn hai file untracked cũ trong `deploy/`: `apply-history-nginx.sh`, `history-simulation-ai.online.conf`; để nguyên, không commit.
