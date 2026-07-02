@@ -666,3 +666,21 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - gửi câu Ngọc Hồi - Đống Đa qua UI trả lời đúng, Evidence Quality Panel xuất hiện;
   - console không warning/error.
 - VPS vẫn còn hai file untracked cũ trong `deploy/`: `apply-history-nginx.sh`, `history-simulation-ai.online.conf`; để nguyên, không commit.
+
+## Evidence metrics wording/feedback stats clarification ngày 2026-07-02
+
+- Commit `a50b977` (`Clarify evidence metrics and feedback stats`) đã sửa UI Evidence Quality:
+  - bỏ câu dễ gây hiểu nhầm `Câu trả lời có nền nguồn tốt, phù hợp để đối chiếu trong demo và báo cáo`;
+  - câu mới nhấn mạnh đây chỉ là điểm bắt đầu để đối chiếu, khi viết báo cáo vẫn phải mở nguồn và kiểm chứng thủ công;
+  - Non-RAG hiển thị rõ không có citation/grounding và không dùng làm căn cứ học thuật.
+- Đã đổi badge citation:
+  - Tier 1/score cao -> `Nguồn mạnh`, không còn `Rất cao`;
+  - Tier 2 -> `Nguồn tốt`;
+  - Tier 3 -> `Nguồn phụ trợ`;
+  - Tier 4 -> `Cần kiểm chứng`.
+- Lý do: `Grounding` và `Nguồn mạnh` là heuristic vận hành nội bộ, không phải thang đo học thuật đã được chuẩn hóa. Nếu đưa vào report thì phải gọi là prototype metric/heuristic.
+- `/api/metrics/summary` đã thêm thống kê feedback rõ hơn: `feedback_rate`, `feedback_distribution`, `feedback_by_character`, `variant_counts`, `mean_grounding_by_variant`, `mean_latency_by_variant`.
+- Production sau deploy `a50b977`:
+  - `https://history-simulation-ai.online/` HTTP/2 200;
+  - `https://pethubvn.store/` HTTP/2 200;
+  - `/api/metrics/summary` trả được phân bố feedback hiện có: `faithful=11`, `missing-citation=2`, chưa có `hallucination`.
