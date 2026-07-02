@@ -623,6 +623,7 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - feedback buttons `Nguồn phù hợp`, `Nguồn chưa thuyết phục`, `Có dấu hiệu sai`;
   - TTS vẫn fire-and-forget sau final, không chặn text stream.
 - Duy evaluator ban đầu ép `LLM_PROVIDER=gemini_api`; đã gỡ để repo chính dùng đúng `.env` hiện tại, gồm cả Vertex production.
+- Metadata `fallback_used` đã được chỉnh nghĩa: RAG retrieval local có `llm_status=skipped` vì tối ưu tốc độ thì không bị coi là API fallback; chỉ lỗi quota/auth/not_configured hoặc local factual/guardrail/fallback mới bị đánh dấu fallback.
 - Runtime output bị ignore, không commit:
   - `backend/logs/`
   - `backend/benchmark_results*.json`

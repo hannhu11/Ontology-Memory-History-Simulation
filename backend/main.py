@@ -563,7 +563,8 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                     yield sse_event("token", {"text": token})
                 final_answer = fallback_answer
         else:
-            fallback_used = True
+            if not (mode == "retrieval" and route_llm_status == "skipped"):
+                fallback_used = True
             for token in tokenized_fallback(fallback_answer):
                 if "first_token" not in marks:
                     marks["first_token"] = time.perf_counter()
