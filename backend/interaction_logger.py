@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -48,18 +49,45 @@ def metrics_summary() -> dict[str, Any]:
     interactions = read_jsonl(INTERACTION_LOG)
     feedback = read_jsonl(FEEDBACK_LOG)
     if not interactions:
-        return {"interaction_count": 0, "feedback_count": len(feedback)}
+        feedback_counts = Counter(str(item.get("rating", "unknown")) for item in feedback)
+        return {
+            "interaction_count": 0,
+            "feedback_count": len(feedback),
+            "feedback_distribution": dict(feedback_counts),
+            "feedback_rate": 0.0,
+        }
     total = len(interactions)
     fallback_count = sum(1 for item in interactions if item.get("fallback_used"))
     citation_counts = [int(item.get("citation_count", 0) or 0) for item in interactions]
     confidences = [int(item.get("grounding_confidence", 0) or 0) for item in interactions]
     latencies = [int((item.get("timings_ms") or {}).get("total_ms", 0) or 0) for item in interactions]
+    variant_counts = Counter(str(item.get("variant", "unknown")) for item in interactions)
+    feedback_counts = Counter(str(item.get("rating", "unknown")) for item in feedback)
+    feedback_by_character: dict[str, Counter[str]] = defaultdict(Counter)
+    for item in feedback:
+        feedback_by_character[str(item.get("character_id", "unknown"))][str(item.get("rating", "unknown"))] += 1
+    grounding_by_variant: dict[str, list[int]] = defaultdict(list)
+    latency_by_variant: dict[str, list[int]] = defaultdict(list)
+    for item in interactions:
+        variant = str(item.get("variant", "unknown"))
+        grounding_by_variant[variant].append(int(item.get("grounding_confidence", 0) or 0))
+        latency_by_variant[variant].append(int((item.get("timings_ms") or {}).get("total_ms", 0) or 0))
+
+    def mean(values: list[int]) -> float:
+        return round(sum(values) / len(values), 3) if values else 0.0
+
     return {
         "interaction_count": total,
         "feedback_count": len(feedback),
+        "feedback_rate": round(len(feedback) / total, 3),
+        "feedback_distribution": dict(feedback_counts),
+        "feedback_by_character": {character: dict(counts) for character, counts in feedback_by_character.items()},
         "fallback_rate": round(fallback_count / total, 3),
         "mean_citation_count": round(sum(citation_counts) / total, 3),
         "mean_grounding_confidence": round(sum(confidences) / total, 3),
         "mean_latency_ms": round(sum(latencies) / total, 3),
+        "variant_counts": dict(variant_counts),
+        "mean_grounding_by_variant": {variant: mean(values) for variant, values in grounding_by_variant.items()},
+        "mean_latency_by_variant": {variant: mean(values) for variant, values in latency_by_variant.items()},
         "recent_feedback": feedback[-20:],
     }

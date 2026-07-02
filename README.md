@@ -100,6 +100,20 @@ python -X utf8 backend\evaluator.py --variants rag,non_rag --out backend\benchma
 
 Các file runtime `backend/logs/` và `backend/benchmark_results*` bị ignore, không commit.
 
+### Evidence Quality Heuristics
+
+Các số trong Evidence Quality Panel là chỉ số vận hành nội bộ, chưa phải thang đo học thuật đã được chuẩn hóa:
+
+- `Nguồn mạnh` = tỷ lệ citation có `source_tier <= 2` trên tổng citation của câu trả lời.
+- `Grounding` được tính trong `backend/metrics.py` từ mode trả lời, số citation, tỷ lệ nguồn mạnh, điểm `source_quality_score`, trạng thái fallback và lỗi LLM.
+- `source_tier` hiện dùng quy ước:
+  - Tier 1: sử liệu gốc, tài liệu chính thống, bảo tàng/viện/cơ quan nhà nước, hoặc bản số hóa primary-source đã được gắn metadata `digitized_primary`.
+  - Tier 2: sách, tạp chí nghiên cứu, nguồn học thuật/chuyên ngành, hoặc bản số hóa secondary-source.
+  - Tier 3: báo/chuyên trang có biên tập và trích nguồn.
+  - Tier 4: Wikipedia/Wiki phụ trợ hoặc nguồn cần đối chiếu.
+- Wikisource không tự động là nguồn mạnh. Nó chỉ được xem là mạnh khi chunk đã được gắn metadata như `digitized_primary` cho văn bản sử liệu gốc; nếu chỉ là trang cộng đồng/phụ trợ thì vẫn có thể bị xếp Tier 4.
+- Các nút phản hồi (`faithful`, `missing-citation`, `hallucination`) được log ở `backend/logs/feedback.jsonl`; thống kê xem qua `GET /api/metrics/summary`.
+
 ## Vertex AI ADC production
 
 Trên VPS, không dùng Service Account JSON. Cài `gcloud`, đăng nhập ADC bằng tài khoản có quyền Vertex AI và cấu hình:

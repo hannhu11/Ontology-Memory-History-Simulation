@@ -22,9 +22,9 @@ function confidenceLabel(value?: number) {
 function citationQuality(citation: Citation) {
   const tier = citation.source_tier ?? 3;
   const score = citation.source_quality_score ?? ({ 1: 1, 2: 0.78, 3: 0.55, 4: 0.25 }[tier] ?? 0.55);
-  if (tier <= 1 || score >= 0.9) return { label: "Rất cao", tone: "excellent", note: "Nguồn chính thống / tư liệu gốc" };
-  if (tier === 2 || score >= 0.72) return { label: "Cao", tone: "strong", note: "Nguồn học thuật / nghiên cứu" };
-  if (tier === 3 || score >= 0.48) return { label: "Trung bình", tone: "medium", note: "Nguồn phổ thông / cần đọc kèm bối cảnh" };
+  if (tier <= 1 || score >= 0.9) return { label: "Nguồn mạnh", tone: "excellent", note: "Sử liệu gốc / nguồn chính thống; khi trích báo cáo vẫn nên mở nguồn và đối chiếu bản in hoặc bản học thuật." };
+  if (tier === 2 || score >= 0.72) return { label: "Nguồn tốt", tone: "strong", note: "Nguồn học thuật, sách hoặc bản số hóa có giá trị; vẫn cần đọc trong bối cảnh." };
+  if (tier === 3 || score >= 0.48) return { label: "Nguồn phụ trợ", tone: "medium", note: "Nguồn có biên tập nhưng không nên dùng một mình cho kết luận học thuật." };
   return { label: "Cần kiểm chứng", tone: "weak", note: "Nguồn yếu hoặc cần đối chiếu thêm" };
 }
 
@@ -43,14 +43,14 @@ function isNonRag(diagnostics?: StreamDiagnostics) {
 
 function evidenceMessage(diagnostics?: StreamDiagnostics, citations?: Citation[]) {
   if (isNonRag(diagnostics)) {
-    return "Không áp dụng citation vì đây là baseline không truy xuất tư liệu. Kết quả dùng để đối chiếu nguy cơ hallucination với RAG.";
+    return "Không có citation/grounding vì đây là baseline không truy xuất tư liệu. Chỉ dùng để so sánh với RAG, không dùng làm căn cứ học thuật.";
   }
   const count = citations?.length || 0;
   const strongRatio = diagnostics?.source_summary?.strong_source_ratio ?? 0;
-  if (!count) return "Chưa có citation để đối chiếu. Nên kiểm chứng trước khi dùng trong báo cáo.";
-  if (strongRatio >= 0.66) return "Câu trả lời có nền nguồn tốt, phù hợp để đối chiếu trong demo và báo cáo.";
-  if (strongRatio >= 0.34) return "Có citation nhưng tỷ lệ nguồn mạnh chưa cao. Nên đọc thêm các tư liệu đi kèm.";
-  return "Citation hiện còn yếu. Nên xem đây là câu trả lời cần kiểm chứng thêm.";
+  if (!count) return "Chưa có citation để đối chiếu. Không nên dùng làm căn cứ báo cáo nếu chưa kiểm chứng thủ công.";
+  if (strongRatio >= 0.66) return "Có nhiều citation từ nguồn mạnh. Có thể dùng làm điểm bắt đầu để đối chiếu, nhưng khi viết báo cáo vẫn phải mở nguồn và kiểm chứng thủ công.";
+  if (strongRatio >= 0.34) return "Có citation nhưng tỷ lệ nguồn mạnh chưa đủ cao. Nên đọc thêm và bổ sung tư liệu mạnh hơn trước khi trích báo cáo.";
+  return "Citation chủ yếu là nguồn phụ trợ hoặc cần kiểm chứng. Không nên dùng làm căn cứ học thuật nếu chưa bổ sung nguồn mạnh.";
 }
 
 function EvidenceQualityPanel({ diagnostics, citations }: { diagnostics?: StreamDiagnostics; citations?: Citation[] }) {
