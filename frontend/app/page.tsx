@@ -1,99 +1,64 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Bot, Pause, Play, RotateCcw, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowUp, Pause, Play, RotateCcw, History } from "lucide-react";
 import { CharacterViewer } from "../components/CharacterViewer";
-import { citationKey, fetchCharacters, sendFeedback, streamChat, synthesizeAudio } from "../lib/api";
+import { ConversationHistory, SavedSession } from "../components/ConversationHistory";
+import { citationKey, fetchCharacters, streamChat, synthesizeAudio } from "../lib/api";
 import { activeCharacter, summarizeCitations, useHistoryStore } from "../lib/store";
-import type { ChatMessage, Citation, StreamDiagnostics } from "../types";
+import type { ChatMessage, Citation } from "../types";
+import { useRouter } from "next/navigation";
+
+const SUGGESTIONS: Record<string, string[]> = {
+  quang_trung: [
+    "Chiến thuật hành quân thần tốc của Ngài là gì?",
+    "Vì sao Ngài chọn tấn công vào đêm Tết Kỷ Dậu?",
+    "Ngài đã dụng nhân như thế nào với La Sơn Phu Tử?",
+    "Chính sách chấn hưng giáo dục và chữ Nôm ra sao?",
+    "Kế sách ngoại giao của Ngài với Càn Long là gì?"
+  ],
+  tran_hung_dao: [
+    "Vì sao Ngài đặt việc khoan thư sức dân làm thượng sách?",
+    "Hãy kể lại trận chiến Bạch Đằng Giang năm 1288.",
+    "Bí quyết đoàn kết quân sĩ chống lại giặc Nguyên Mông là gì?",
+    "Hịch Tướng Sĩ được viết trong bối cảnh nào?"
+  ],
+  nguyen_trai: [
+    "Mưu phạt tâm công trong sách Bình Ngô nghĩa là gì?",
+    "Đâu là tinh thần cốt lõi của Bình Ngô Đại Cáo?",
+    "Làm thế nào tiên sinh khuyên Lê Lợi giữ lòng nhân nghĩa?"
+  ],
+  ho_chi_minh: [
+    "Ý nghĩa của câu nói: Không có gì quý hơn độc lập tự do?",
+    "Kể về hành trình tìm đường cứu nước từ Bến Nhà Rồng.",
+    "Bác nghĩ thế nào về vai trò của đại đoàn kết dân tộc?"
+  ],
+  vo_nguyen_giap: [
+    "Vì sao chuyển từ đánh nhanh thắng nhanh sang đánh chắc tiến chắc?",
+    "Chiến dịch Điện Biên Phủ diễn ra như thế nào?",
+    "Bí quyết xây dựng thế trận chiến tranh nhân dân?"
+  ]
+};
+
+function getCharacterSymbol(charId: string) {
+  switch (charId) {
+    case "quang_trung":
+      return "Đế";
+    case "tran_hung_dao":
+      return "Vương";
+    case "nguyen_trai":
+      return "Ức";
+    case "ho_chi_minh":
+      return "Bác";
+    case "vo_nguyen_giap":
+      return "Tướng";
+    default:
+      return "Danh";
+  }
+}
 
 function newId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function confidenceLabel(value?: number) {
-  if (value === undefined) return "Chưa đo";
-  if (value >= 85) return "Rất cao";
-  if (value >= 65) return "Cao";
-  if (value >= 45) return "Trung bình";
-  return "Cần kiểm chứng";
-}
-
-function citationQuality(citation: Citation) {
-  const tier = citation.source_tier ?? 3;
-  const score = citation.source_quality_score ?? ({ 1: 1, 2: 0.78, 3: 0.55, 4: 0.25 }[tier] ?? 0.55);
-  if (tier <= 1 || score >= 0.9) return { label: "Nguồn mạnh", tone: "excellent", note: "Sử liệu gốc / nguồn chính thống; khi trích báo cáo vẫn nên mở nguồn và đối chiếu bản in hoặc bản học thuật." };
-  if (tier === 2 || score >= 0.72) return { label: "Nguồn tốt", tone: "strong", note: "Nguồn học thuật, sách hoặc bản số hóa có giá trị; vẫn cần đọc trong bối cảnh." };
-  if (tier === 3 || score >= 0.48) return { label: "Nguồn phụ trợ", tone: "medium", note: "Nguồn có biên tập nhưng không nên dùng một mình cho kết luận học thuật." };
-  return { label: "Cần kiểm chứng", tone: "weak", note: "Nguồn yếu hoặc cần đối chiếu thêm" };
-}
-
-function tierLabel(tier?: number) {
-  return {
-    1: "Tier 1 · Chính thống",
-    2: "Tier 2 · Học thuật",
-    3: "Tier 3 · Phổ thông",
-    4: "Tier 4 · Cần đối chiếu",
-  }[tier || 3];
-}
-
-function isNonRag(diagnostics?: StreamDiagnostics) {
-  return diagnostics?.variant === "non_rag" || diagnostics?.route_source === "non_rag";
-}
-
-function evidenceMessage(diagnostics?: StreamDiagnostics, citations?: Citation[]) {
-  if (isNonRag(diagnostics)) {
-    return "Không có citation/grounding vì đây là baseline không truy xuất tư liệu. Chỉ dùng để so sánh với RAG, không dùng làm căn cứ học thuật.";
-  }
-  const count = citations?.length || 0;
-  const strongRatio = diagnostics?.source_summary?.strong_source_ratio ?? 0;
-  if (!count) return "Chưa có citation để đối chiếu. Không nên dùng làm căn cứ báo cáo nếu chưa kiểm chứng thủ công.";
-  if (strongRatio >= 0.66) return "Có nhiều citation từ nguồn mạnh. Có thể dùng làm điểm bắt đầu để đối chiếu, nhưng khi viết báo cáo vẫn phải mở nguồn và kiểm chứng thủ công.";
-  if (strongRatio >= 0.34) return "Có citation nhưng tỷ lệ nguồn mạnh chưa đủ cao. Nên đọc thêm và bổ sung tư liệu mạnh hơn trước khi trích báo cáo.";
-  return "Citation chủ yếu là nguồn phụ trợ hoặc cần kiểm chứng. Không nên dùng làm căn cứ học thuật nếu chưa bổ sung nguồn mạnh.";
-}
-
-function EvidenceQualityPanel({ diagnostics, citations }: { diagnostics?: StreamDiagnostics; citations?: Citation[] }) {
-  if (!diagnostics && !citations?.length) return null;
-  const nonRag = isNonRag(diagnostics);
-  const confidence = nonRag ? undefined : diagnostics?.grounding_confidence;
-  const sourceSummary = diagnostics?.source_summary;
-  const latency = diagnostics?.timings_ms?.total_ms;
-  const strongRatio = nonRag ? 0 : Math.round((sourceSummary?.strong_source_ratio || 0) * 100);
-  const level = nonRag ? "Không áp dụng" : confidenceLabel(confidence);
-
-  return (
-    <div className={`mt-4 rounded-xl border p-4 ${nonRag ? "border-[rgba(255,184,107,.35)] bg-[rgba(255,184,107,.08)]" : "border-[rgba(37,183,166,.28)] bg-[rgba(37,183,166,.07)]"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[.14em] text-[#25b7a6]">
-            <ShieldCheck size={15} /> Evidence Quality
-          </div>
-          <div className="mt-2 text-2xl font-black text-[#f6f0e4]">{level}</div>
-        </div>
-        <span className="rounded-full border border-[rgba(246,240,228,.14)] px-3 py-1 text-xs font-black uppercase tracking-[.12em] text-[#e5bd3b]">
-          {nonRag ? "Non-RAG baseline" : "RAG + citation"}
-        </span>
-      </div>
-
-      <p className="mt-3 text-sm leading-6 text-[rgba(246,240,228,.78)]">{evidenceMessage(diagnostics, citations)}</p>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg bg-[rgba(246,240,228,.05)] p-3">
-          <div className="text-xs font-bold uppercase tracking-[.12em] text-muted">Grounding</div>
-          <div className="mt-1 text-xl font-black text-[#f6f0e4]">{nonRag ? "—" : `${confidence ?? "?"}%`}</div>
-        </div>
-        <div className="rounded-lg bg-[rgba(246,240,228,.05)] p-3">
-          <div className="text-xs font-bold uppercase tracking-[.12em] text-muted">Nguồn mạnh</div>
-          <div className="mt-1 text-xl font-black text-[#f6f0e4]">{nonRag ? "—" : `${strongRatio}%`}</div>
-        </div>
-        <div className="rounded-lg bg-[rgba(246,240,228,.05)] p-3">
-          <div className="text-xs font-bold uppercase tracking-[.12em] text-muted">Độ trễ</div>
-          <div className="mt-1 text-xl font-black text-[#f6f0e4]">{latency ? `${latency}ms` : "đang đo"}</div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function CitationList({ citations }: { citations?: Citation[] }) {
@@ -104,40 +69,30 @@ function CitationList({ citations }: { citations?: Citation[] }) {
         Tư liệu đối chiếu · {citations.length}
       </summary>
       <div className="space-y-3 px-4 pb-4">
-        {citations.map((citation, index) => {
-          const quality = citationQuality(citation);
-          return (
-            <article
-              key={citationKey(citation, index)}
-              className="rounded-md border-l-4 border-[#9d3127] bg-[#fbf3df] px-4 py-3 text-[#2b2119]"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="font-semibold">
-                  {index + 1}. {citation.source_title}
-                </div>
-                <span className={`quality-badge quality-badge-${quality.tone}`}>{quality.label}</span>
-              </div>
-              <div className="mt-2 text-xs font-bold uppercase tracking-[.1em] text-[#6b4c2a]">
-                {tierLabel(citation.source_tier)}
-              </div>
-              <div className="mt-1 text-sm">Niên đại tài liệu: {citation.source_year || "không rõ"}</div>
-              <div className="text-sm">Mức độ nhận định: {citation.claim_status}</div>
-              <div className="text-sm">Đoạn tư liệu: {citation.chunk_id}</div>
-              <div className="mt-1 text-xs text-[#6b4c2a]">{quality.note}</div>
-              {citation.fact ? <p className="mt-2 text-sm leading-relaxed">{citation.fact}</p> : null}
-              {citation.source_url ? (
-                <a
-                  href={citation.source_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 inline-block text-sm font-semibold text-[#075ca8] underline"
-                >
-                  Mở tư liệu
-                </a>
-              ) : null}
-            </article>
-          );
-        })}
+        {citations.map((citation, index) => (
+          <article
+            key={citationKey(citation, index)}
+            className="rounded-md border-l-4 border-[#9d3127] bg-[#fbf3df] px-4 py-3 text-[#2b2119]"
+          >
+            <div className="font-semibold">
+              {index + 1}. {citation.source_title}
+            </div>
+            <div className="mt-1 text-sm">Niên đại tài liệu: {citation.source_year || "không rõ"}</div>
+            <div className="text-sm">Mức độ nhận định: {citation.claim_status}</div>
+            <div className="text-sm">Đoạn tư liệu: {citation.chunk_id}</div>
+            {citation.fact ? <p className="mt-2 text-sm leading-relaxed">{citation.fact}</p> : null}
+            {citation.source_url ? (
+              <a
+                href={citation.source_url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-block text-sm font-semibold text-[#075ca8] underline"
+              >
+                Mở tư liệu
+              </a>
+            ) : null}
+          </article>
+        ))}
       </div>
     </details>
   );
@@ -219,29 +174,20 @@ function AudioPlayer({
 
 function MessageBubble({
   message,
+  characterId,
   onAudioPlay,
   onAudioStop,
-  onFeedback,
 }: {
   message: ChatMessage;
+  characterId: string;
   onAudioPlay?: () => void;
   onAudioStop?: () => void;
-  onFeedback?: (messageId: string, rating: string) => void;
 }) {
   const isUser = message.role === "user";
-  const feedbackOptions = [
-    ["faithful", "Nguồn phù hợp"],
-    ["missing-citation", "Nguồn chưa thuyết phục"],
-    ["hallucination", "Có dấu hiệu sai"],
-  ] as const;
   return (
-    <div className={`flex gap-3 ${isUser ? "items-start" : "items-start"}`}>
-      <div
-        className={`mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${
-          isUser ? "bg-[#ff4b4b]" : "bg-[#ff9f19]"
-        }`}
-      >
-        {isUser ? <UserRound size={20} /> : <Bot size={20} />}
+    <div className={`flex gap-4 items-start`}>
+      <div className={`chat-avatar ${isUser ? "chat-avatar-user" : "chat-avatar-assistant"}`}>
+        {isUser ? "Ta" : getCharacterSymbol(characterId)}
       </div>
       <div className="min-w-0 flex-1">
         <div
@@ -261,34 +207,14 @@ function MessageBubble({
         {message.audioReady && message.audioBase64 ? (
           <AudioPlayer audioBase64={message.audioBase64} onAudioPlay={onAudioPlay} onAudioStop={onAudioStop} />
         ) : null}
-        {!isUser ? (
-          <>
-            <EvidenceQualityPanel diagnostics={message.diagnostics} citations={message.citations} />
-            <CitationList citations={message.citations} />
-            {message.content ? (
-              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted">
-                <span className="mr-1 font-bold uppercase tracking-[.12em]">Phản hồi</span>
-                {feedbackOptions.map(([rating, label]) => (
-                  <button
-                    key={rating}
-                    type="button"
-                    disabled={Boolean(message.feedbackSent)}
-                    onClick={() => onFeedback?.(message.id, rating)}
-                    className="rounded-full border border-[rgba(229,189,59,.18)] px-3 py-1 text-[rgba(246,240,228,.82)] transition hover:border-[#e5bd3b] hover:bg-[rgba(229,189,59,.08)] disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    {message.feedbackSent === rating ? "Đã ghi nhận" : label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </>
-        ) : null}
+        {!isUser ? <CitationList citations={message.citations} /> : null}
       </div>
     </div>
   );
 }
 
 export default function Home() {
+  const router = useRouter();
   const {
     characters,
     selectedCharacterId,
@@ -309,18 +235,30 @@ export default function Home() {
     beginSpeaking,
     endSpeaking,
     clearChat,
+    loadSessionMessages,
   } = useHistoryStore();
+  
   const [input, setInput] = useState("");
-  const [variant, setVariant] = useState<"rag" | "non_rag">("rag");
   const [loadError, setLoadError] = useState("");
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlChar = params.get("character");
+
+    if (!urlChar) {
+      router.push("/select");
+      return;
+    }
+
     fetchCharacters()
-      .then((payload) => setCharacters(payload.characters, payload.default_character_id))
+      .then((payload) => {
+        setCharacters(payload.characters, urlChar);
+      })
       .catch((error: Error) => setLoadError(error.message));
-  }, [setCharacters]);
+  }, [setCharacters, router]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -330,6 +268,7 @@ export default function Home() {
     () => activeCharacter(characters, selectedCharacterId),
     [characters, selectedCharacterId],
   );
+  
   const latestAssistantId = useMemo(
     () => [...messages].reverse().find((message) => message.role === "assistant")?.id,
     [messages],
@@ -339,7 +278,13 @@ export default function Home() {
     abortRef.current?.abort();
     abortRef.current = null;
     selectCharacter(characterId);
+    localStorage.setItem("history_simulation_active_char", characterId);
     setInput("");
+  };
+
+  const handleLoadSession = (session: SavedSession) => {
+    loadSessionMessages(session.characterId, session.messages);
+    setIsHistoryOpen(false);
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -391,7 +336,6 @@ export default function Home() {
               citations: data.citations,
               mode: data.mode,
               state: data.state,
-              diagnostics: data,
             });
             setStatus("answering", summarizeCitations(data.citations));
           },
@@ -412,7 +356,6 @@ export default function Home() {
               citations: data.citations,
               mode: data.mode,
               state: data.state,
-              diagnostics: data,
               audioPending: true,
             });
             const currentVisual = useHistoryStore.getState().visual;
@@ -447,7 +390,6 @@ export default function Home() {
           },
         },
         controller.signal,
-        variant,
       );
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -458,21 +400,16 @@ export default function Home() {
     }
   };
 
-  const handleFeedback = async (messageId: string, rating: string) => {
-    const characterId = selected?.character_id || selectedCharacterId;
-    updateAssistant(messageId, { feedbackSent: rating });
-    try {
-      await sendFeedback({ message_id: messageId, character_id: characterId, rating });
-    } catch {
-      updateAssistant(messageId, { feedbackSent: undefined });
-    }
-  };
+  const suggestionsList = useMemo(() => {
+    if (!selectedCharacterId) return [];
+    return SUGGESTIONS[selectedCharacterId] || [];
+  }, [selectedCharacterId]);
 
   return (
     <main className="shell-grid">
       <aside className="left-rail panel flex min-h-[calc(100vh-2rem)] flex-col gap-5 p-5">
         <div>
-          <div className="mb-2 text-xs uppercase tracking-[.14em] text-[#d7b458]">Nhân vật</div>
+          <div className="section-label">Nhân vật</div>
           <select
             className="w-full rounded-md border border-[rgba(229,189,59,.22)] bg-[#f6f0e4] px-4 py-3 text-[#2b2119] outline-none"
             value={selectedCharacterId}
@@ -487,39 +424,15 @@ export default function Home() {
           </select>
         </div>
 
-        <section className="rounded-lg border border-[rgba(229,189,59,.18)] bg-[rgba(246,240,228,.05)] p-4">
-          <div className="mb-3 text-xs font-bold uppercase tracking-[.14em] text-[#d7b458]">Chế độ kiểm thử</div>
-          <div className="grid gap-2">
-            {[
-              ["rag", "RAG có trích dẫn", "Truy xuất tư liệu rồi trả lời."],
-              ["non_rag", "Non-RAG baseline", "Không truy xuất, dùng để so sánh."],
-            ].map(([value, label, description]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setVariant(value as "rag" | "non_rag")}
-                className={`rounded-md border px-3 py-3 text-left transition ${
-                  variant === value
-                    ? "border-[#e5bd3b] bg-[rgba(229,189,59,.14)]"
-                    : "border-[rgba(229,189,59,.14)] bg-[rgba(246,240,228,.04)] hover:border-[rgba(229,189,59,.36)]"
-                }`}
-              >
-                <div className="text-sm font-bold text-[#f6f0e4]">{label}</div>
-                <div className="mt-1 text-xs leading-5 text-muted">{description}</div>
-              </button>
-            ))}
-          </div>
-        </section>
-
         <section>
-          <h2 className="mb-3 text-xl font-bold text-[#f6f0e4]">Kịch bản gài bẫy</h2>
+          <div className="section-label">Kịch bản gài bẫy</div>
           <div className="space-y-3">
             {(selected?.edge_cases || []).map((caseText) => (
               <button
                 key={caseText}
                 type="button"
                 onClick={() => setInput(caseText)}
-                className="w-full rounded-md border border-[rgba(229,189,59,.18)] bg-[rgba(246,240,228,.06)] px-3 py-3 text-sm leading-6 text-[rgba(246,240,228,.88)] transition hover:border-[#e5bd3b] hover:bg-[rgba(229,189,59,.1)]"
+                className="w-full text-left rounded-md border border-[rgba(229,189,59,.18)] bg-[rgba(246,240,228,.06)] px-3 py-3 text-sm leading-6 text-[rgba(246,240,228,.88)] transition hover:border-[#e5bd3b] hover:bg-[rgba(229,189,59,.1)]"
               >
                 {caseText}
               </button>
@@ -527,20 +440,39 @@ export default function Home() {
           </div>
         </section>
 
-        <button
-          type="button"
-          onClick={clearChat}
-          className="mt-auto flex items-center justify-center gap-2 rounded-md border border-[rgba(229,189,59,.22)] px-4 py-3 text-sm text-[rgba(246,240,228,.9)] hover:bg-[rgba(229,189,59,.1)]"
-        >
-          <RotateCcw size={16} />
-          Xóa hội thoại
-        </button>
+        <div className="mt-auto flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setIsHistoryOpen(true)}
+            className="flex items-center justify-center gap-2 rounded-md border border-[rgba(229,189,59,.22)] px-4 py-3 text-sm text-[rgba(246,240,228,.9)] hover:bg-[rgba(229,189,59,.1)]"
+          >
+            <History size={16} />
+            Lịch sử & Lưu trữ
+          </button>
+          
+          <button
+            type="button"
+            onClick={clearChat}
+            className="flex items-center justify-center gap-2 rounded-md border border-[rgba(229,189,59,.22)] px-4 py-3 text-sm text-[rgba(246,240,228,.9)] hover:bg-[rgba(229,189,59,.1)]"
+          >
+            <RotateCcw size={16} />
+            Xóa hội thoại
+          </button>
+        </div>
       </aside>
 
       <section className="flex min-h-[calc(100vh-2rem)] flex-col">
-        <header className="mb-5">
-          <h1 className="text-3xl font-black text-[#f6f0e4]">Đối thoại lịch sử với nhân vật</h1>
-          <p className="mt-2 text-muted">Nhân vật trả lời nhập vai; phần đối chiếu học thuật nằm riêng bên dưới.</p>
+        <header className="mb-5 flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-black text-[#f6f0e4] font-display">Đối thoại lịch sử</h1>
+            <p className="mt-2 text-muted">Nhân vật trả lời nhập vai; phần đối chiếu học thuật nằm riêng bên dưới.</p>
+          </div>
+          <button
+            onClick={() => router.push("/select")}
+            className="rounded-md border border-[rgba(229,189,59,0.3)] bg-[rgba(229,189,59,0.06)] px-4 py-2 text-xs font-semibold text-[#e5bd3b] uppercase tracking-wider hover:bg-[rgba(229,189,59,0.15)] transition"
+          >
+            Đổi nhân vật
+          </button>
         </header>
 
         <div className="chat-scroll flex-1 overflow-y-auto pr-2">
@@ -552,9 +484,9 @@ export default function Home() {
                 <MessageBubble
                   key={message.id}
                   message={message}
+                  characterId={selectedCharacterId}
                   onAudioPlay={message.role === "assistant" && message.id === latestAssistantId ? beginSpeaking : undefined}
                   onAudioStop={message.role === "assistant" && message.id === latestAssistantId ? endSpeaking : undefined}
-                  onFeedback={handleFeedback}
                 />
               ))}
             </div>
@@ -562,7 +494,7 @@ export default function Home() {
             <div className="surface flex min-h-[48vh] items-center justify-center p-8 text-center">
               <div>
                 <div className="mx-auto mb-4 h-2 w-24 rounded-full bg-[#e5bd3b]" />
-                <h2 className="text-2xl font-bold text-[#e5bd3b]">{selected?.display_name || "Simulacra"}</h2>
+                <h2 className="text-2xl font-bold text-[#e5bd3b] font-display">{selected?.display_name || "Simulacra"}</h2>
                 <p className="mt-3 max-w-xl text-muted">
                   Khung đối thoại đã sẵn sàng. Hãy hỏi thẳng vào thân thế, tư tưởng, trận đánh, lựa chọn chính trị hoặc
                   câu gài bẫy để kiểm tra mô phỏng.
@@ -573,25 +505,44 @@ export default function Home() {
           <div ref={chatEndRef} />
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-5">
-          <div className="flex items-center gap-3 rounded-lg border border-[rgba(229,189,59,.16)] bg-[rgba(246,240,228,.08)] p-3">
-            <input
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder={`Hỏi ${selected?.display_name || "nhân vật"} về thân thế, sự nghiệp, tư tưởng...`}
-              className="min-w-0 flex-1 bg-transparent px-2 py-3 text-[#f6f0e4] outline-none placeholder:text-[rgba(246,240,228,.42)]"
-              disabled={!selected || isSending}
-            />
-            <button
-              type="submit"
-              disabled={!input.trim() || !selected || isSending}
-              className="flex h-12 w-12 items-center justify-center rounded-md bg-[#e5bd3b] text-[#1c150d] disabled:cursor-not-allowed disabled:opacity-45"
-              aria-label="Gửi câu hỏi"
-            >
-              <ArrowUp size={21} />
-            </button>
-          </div>
-        </form>
+        <div className="mt-5">
+          {suggestionsList.length > 0 && (
+            <div className="mb-3">
+              <div className="section-label mb-2">Câu hỏi gợi ý</div>
+              <div className="suggested-questions">
+                {suggestionsList.map((question) => (
+                  <button
+                    key={question}
+                    onClick={() => setInput(question)}
+                    className="suggested-question-btn"
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            <div className="flex items-center gap-3 rounded-lg border border-[rgba(229,189,59,.16)] bg-[rgba(246,240,228,.08)] p-3">
+              <input
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder={`Hỏi ${selected?.display_name || "nhân vật"} về thân thế, sự nghiệp, tư tưởng...`}
+                className="min-w-0 flex-1 bg-transparent px-2 py-3 text-[#f6f0e4] outline-none placeholder:text-[rgba(246,240,228,.42)]"
+                disabled={!selected || isSending}
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || !selected || isSending}
+                className="flex h-12 w-12 items-center justify-center rounded-md bg-[#e5bd3b] text-[#1c150d] disabled:cursor-not-allowed disabled:opacity-45"
+                aria-label="Gửi câu hỏi"
+              >
+                <ArrowUp size={21} />
+              </button>
+            </div>
+          </form>
+        </div>
       </section>
 
       <aside className="right-rail">
@@ -600,7 +551,7 @@ export default function Home() {
             <CharacterViewer character={selected} visual={visual} onMotionComplete={completeVisualMotion} />
           </div>
           <div className="panel p-5">
-            <h2 className="text-lg font-bold text-[#e5bd3b]">Nhân vật đang chọn</h2>
+            <div className="section-label">Nhân vật đang chọn</div>
             <p className="mt-3 text-sm leading-7 text-[rgba(246,240,228,.84)]">
               Tên hiển thị: {selected?.display_name}
             </p>
@@ -614,6 +565,15 @@ export default function Home() {
           </div>
         </div>
       </aside>
+
+      <ConversationHistory
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        currentMessages={messages}
+        characterId={selectedCharacterId}
+        characterName={selected?.display_name || "Nhân vật"}
+        onLoadSession={handleLoadSession}
+      />
     </main>
   );
 }

@@ -1,0 +1,85 @@
+"use client";
+
+import { useEffect, useRef, useCallback, useState } from "react";
+
+// ─── Audio Engine Hook (Cinematic Version) ─────────────────────────
+export function useIntroAudio() {
+  const ctxRef = useRef<AudioContext | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+  const droneRef = useRef<OscillatorNode | null>(null);
+  
+  // State is used to trigger re-renders in parent components once audio is loaded,
+  // preventing stuck tick loops.
+  const [voiceoverAudio, setVoiceoverAudio] = useState<HTMLAudioElement | null>(null);
+  const voiceoverRef = useRef<HTMLAudioElement | null>(null);
+
+  // ─── Initialize audio context ────────────────────────────────────
+  const initAudio = useCallback(() => {
+    if (ctxRef.current) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      ctxRef.current = ctx;
+
+      // Master gain
+      const masterGain = ctx.createGain();
+      masterGain.gain.setValueAtTime(0.01, ctx.currentTime);
+      masterGain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 2.5);
+      masterGain.connect(ctx.destination);
+      masterGainRef.current = masterGain;
+
+      // ── Deep Drone Pad (Low-frequency cinematic rumble) ──
+      const drone = ctx.createOscillator();
+      const droneGain = ctx.createGain();
+      const droneFilter = ctx.createBiquadFilter();
+      
+      drone.type = "sawtooth";
+      drone.frequency.setValueAtTime(48.99, ctx.currentTime); // Low G1 Sub-bass
+      
+      droneFilter.type = "lowpass";
+      droneFilter.frequency.setValueAtTime(70, ctx.currentTime); // Warm rumble
+      
+      droneGain.gain.setValueAtTime(0.2, ctx.currentTime);
+      
+      drone.connect(droneFilter);
+      droneFilter.connect(droneGain);
+      droneGain.connect(masterGain);
+      drone.start();
+      droneRef.current = drone;
+    } catch (e) {
+      console.warn("IntroAudio init error:", e);
+    }
+  }, []);
+
+  // ─── Cleanup ─────────────────────────────────────────────────────
+  const cleanup = useCallback(() => {
+    if (droneRef.current) {
+      try { droneRef.current.stop(); } catch (e) {}
+    }
+    if (ctxRef.current) {
+      try { ctxRef.current.close(); } catch (e) {}
+    }
+    ctxRef.current = null;
+
+    if (voiceoverRef.current) {
+      try { voiceoverRef.current.pause(); } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const audio = new Audio("/vua_quang_trung.mp3");
+      audio.volume = 0.95;
+      voiceoverRef.current = audio;
+      setVoiceoverAudio(audio);
+    }
+    return () => cleanup();
+  }, [cleanup]);
+
+  return {
+    initAudio,
+    cleanup,
+    voiceoverAudio,
+  };
+}

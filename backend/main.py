@@ -17,10 +17,7 @@ from pydantic import BaseModel, Field
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BACKEND_DIR = Path(__file__).resolve().parent
 LEGACY_WEB_DIR = PROJECT_ROOT / "quang_trung_web"
-if str(BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(BACKEND_DIR))
 if str(LEGACY_WEB_DIR) not in sys.path:
     sys.path.insert(0, str(LEGACY_WEB_DIR))
 
@@ -42,7 +39,6 @@ from llm_provider import (  # noqa: E402
 from rag_core import (  # noqa: E402
     VectorRetriever,
     answer_query,
-    build_local_fallback_answer,
     compact_text,
     is_identity_query,
     is_legacy_afterlife_query,
@@ -54,8 +50,6 @@ from rag_core import (  # noqa: E402
     query_intents,
 )
 from tts_provider import synthesize  # noqa: E402
-from interaction_logger import log_feedback, log_interaction, metrics_summary  # noqa: E402
-from metrics import calculate_grounding_confidence, source_tier_summary  # noqa: E402
 
 
 class ChatMessage(BaseModel):
@@ -67,21 +61,11 @@ class ChatStreamRequest(BaseModel):
     character_id: str = DEFAULT_CHARACTER_ID
     message: str = Field(min_length=1, max_length=2000)
     history: list[ChatMessage] = Field(default_factory=list)
-    variant: str = Field(default="rag", pattern="^(rag|non_rag)$")
-    session_id: str = "anonymous"
 
 
 class TTSRequest(BaseModel):
     character_id: str = DEFAULT_CHARACTER_ID
     text: str = Field(min_length=1, max_length=6000)
-
-
-class FeedbackRequest(BaseModel):
-    message_id: str
-    character_id: str = DEFAULT_CHARACTER_ID
-    rating: str = Field(min_length=1, max_length=80)
-    comment: str = Field(default="", max_length=1000)
-    session_id: str = "anonymous"
 
 
 def sse_event(event: str, data: dict[str, Any]) -> str:
@@ -382,9 +366,7 @@ def fast_local_retrieval_enabled() -> bool:
     return os.getenv("FAST_LOCAL_RETRIEVAL", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
-def should_stream_with_gemini(query: str, profile: dict, result: dict, route_llm_status: str, variant: str = "rag") -> bool:
-    if variant == "non_rag":
-        return llm_is_configured() and route_llm_status not in {"quota_exhausted", "auth_error", "invalid_model", "not_configured"}
+def should_stream_with_gemini(query: str, profile: dict, result: dict, route_llm_status: str) -> bool:
     route_intent = str((result.get("route") or {}).get("intent", ""))
     if fast_local_retrieval_enabled() and route_llm_status == "skipped" and result.get("mode") == "retrieval":
         return False
@@ -483,29 +465,11 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 route_source = "deterministic"
                 route_llm_status = str(router_response.get("llm_status", "router_fallback"))
         marks["route"] = time.perf_counter()
-        if request.variant == "non_rag":
-            route_intent = str(route.get("intent", "history_fact") or "history_fact")
-            result = {
-                "answer": build_local_fallback_answer(query, profile, route_intent, []),
-                "citations": [],
-                "mode": "non_rag",
-                "state": "talking",
-                "fallback_used": not llm_is_configured(),
-                "route": route,
-            }
-        else:
-            result = answer_query(query, profile, retriever, generator=None, route=route)
+        result = answer_query(query, profile, retriever, generator=None, route=route)
         marks["retrieval"] = time.perf_counter()
         citations = [public_citation(chunk) for chunk in result.get("citations", [])]
         fallback_used = bool(result.get("fallback_used", False))
         llm_status = route_llm_status
-        source_summary = source_tier_summary(citations)
-        grounding_confidence = calculate_grounding_confidence(
-            citations=citations,
-            mode=result.get("mode", "retrieval"),
-            fallback_used=fallback_used,
-            llm_status=llm_status,
-        )
         yield sse_event(
             "retrieval",
             {
@@ -517,9 +481,6 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 "llm_status": llm_status,
                 "fallback_used": fallback_used,
                 "timings_ms": timing_payload(started_at, marks, "route", "retrieval"),
-                "source_summary": source_summary,
-                "grounding_confidence": grounding_confidence,
-                "variant": request.variant,
             },
         )
 
@@ -537,11 +498,10 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
             },
         )
 
-        if should_stream_with_gemini(query, profile, result, route_llm_status, request.variant):
+        if should_stream_with_gemini(query, profile, result, route_llm_status):
             collected: list[str] = []
             try:
-                generation_citations = [] if request.variant == "non_rag" else result.get("citations", [])
-                for token in stream_fused_generation(query, profile, generation_citations, route=route):
+                for token in stream_fused_generation(query, profile, result.get("citations", []), route=route):
                     emitted_stream = True
                     if "first_token" not in marks:
                         marks["first_token"] = time.perf_counter()
@@ -550,7 +510,7 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 raw_answer = "".join(collected).strip()
                 if raw_answer:
                     final_answer = raw_answer
-                    mode = "non_rag" if request.variant == "non_rag" else "api"
+                    mode = "api"
                     llm_status = "ok"
                     fallback_used = False
             except GeminiCallError as exc:
@@ -563,38 +523,13 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                     yield sse_event("token", {"text": token})
                 final_answer = fallback_answer
         else:
-            if not (mode == "retrieval" and route_llm_status == "skipped"):
-                fallback_used = True
+            fallback_used = True
             for token in tokenized_fallback(fallback_answer):
                 if "first_token" not in marks:
                     marks["first_token"] = time.perf_counter()
                 yield sse_event("token", {"text": token})
 
         marks["final"] = time.perf_counter()
-        final_timings = timing_payload(started_at, marks, "route", "retrieval", "first_token", "final")
-        source_summary = source_tier_summary(citations)
-        grounding_confidence = calculate_grounding_confidence(
-            citations=citations,
-            mode=mode,
-            fallback_used=fallback_used,
-            llm_status=llm_status,
-        )
-        log_interaction(
-            {
-                "session_id": request.session_id,
-                "character_id": character_id,
-                "variant": request.variant,
-                "prompt": query,
-                "mode": mode,
-                "route_source": route_source,
-                "llm_status": llm_status,
-                "fallback_used": fallback_used,
-                "citation_count": len(citations),
-                "source_summary": source_summary,
-                "grounding_confidence": grounding_confidence,
-                "timings_ms": final_timings,
-            }
-        )
         yield sse_event(
             "final",
             {
@@ -606,10 +541,7 @@ def stream_chat_response(request: ChatStreamRequest) -> Iterator[str]:
                 "route_source": route_source,
                 "llm_status": llm_status,
                 "fallback_used": fallback_used,
-                "timings_ms": final_timings,
-                "source_summary": source_summary,
-                "grounding_confidence": grounding_confidence,
-                "variant": request.variant,
+                "timings_ms": timing_payload(started_at, marks, "route", "retrieval", "first_token", "final"),
                 "visual": visual_payload(query, final_answer, profile, {**result, "mode": mode}, citations, phase="answering"),
             },
         )
@@ -632,17 +564,6 @@ def chat_stream(request: ChatStreamRequest) -> StreamingResponse:
             "Connection": "keep-alive",
         },
     )
-
-
-@app.get("/api/metrics/summary")
-def metrics() -> dict:
-    return metrics_summary()
-
-
-@app.post("/api/feedback")
-def feedback(request: FeedbackRequest) -> dict:
-    log_feedback(request.model_dump())
-    return {"ok": True}
 
 
 @app.post("/api/tts")

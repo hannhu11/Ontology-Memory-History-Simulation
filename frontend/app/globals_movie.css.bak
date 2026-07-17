@@ -1,391 +1,4 @@
-/* Stick Dragging Interaction (Chapter 1) */
-.story-drag-stick-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.story-drag-stick-label {
-  font-family: var(--font-display);
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--kinpaku);
-  letter-spacing: 0.15em;
-}
-
-.story-stick-slot {
-  position: relative;
-  width: 14px;
-  height: 220px;
-  background: rgba(29, 25, 21, 0.8);
-  border: 2px solid rgba(229, 189, 59, 0.4);
-  border-radius: 99px;
-  box-shadow: inset 0 0 15px rgba(0,0,0,0.8);
-}
-
-.story-stick-fill {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  border-radius: 99px;
-  background: linear-gradient(to top, var(--patina), var(--kinpaku));
-  box-shadow: 0 0 10px var(--kinpaku);
-  transition: height 0.1s ease-out;
-}
-
-.story-stick-handle {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #e5bd3b 0%, #b8941e 50%, #5c440a 100%);
-  border: 3px solid var(--rice);
-  box-shadow: 
-    0 4px 15px rgba(0,0,0,0.6),
-    0 0 15px rgba(229, 189, 59, 0.5);
-  cursor: grab;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--rice);
-  font-size: 1.2rem;
-  user-select: none;
-  touch-action: none;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  z-index: 5;
-}
-
-.story-stick-handle:active,
-.story-stick-handle.active {
-  cursor: grabbing;
-  transform: translateX(-50%) scale(1.1);
-  box-shadow: 
-    0 6px 20px rgba(0,0,0,0.8),
-    0 0 25px var(--kinpaku);
-}
-
-.story-drag-sub {
-  font-size: 0.75rem;
-  color: rgba(246, 240, 228, 0.5);
-  letter-spacing: 0.05em;
-}
-
-/* Tactical Map Game (Chapter 5) */
-.story-tactical-map-container {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  background: rgba(13, 10, 7, 0.95);
-  border: 2px solid var(--kinpaku);
-  border-radius: 8px;
-  padding: 2rem;
-  box-shadow: 
-    0 20px 50px rgba(0,0,0,0.85),
-    inset 0 0 40px rgba(229,189,59,0.05);
-  backdrop-filter: blur(10px);
-}
-
-.story-token-bank {
-  border-bottom: 1px solid rgba(229, 189, 59, 0.15);
-  padding-bottom: 1.5rem;
-}
-
-.story-bank-title {
-  font-family: var(--font-display);
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--kinpaku);
-  letter-spacing: 0.1em;
-  margin-bottom: 1rem;
-  text-align: left;
-}
-
-.story-tokens-list {
-  display: flex;
-  gap: 1.25rem;
-  flex-wrap: wrap;
-}
-
-.story-draggable-token {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: rgba(29, 25, 21, 0.95);
-  border: 1px solid rgba(229, 189, 59, 0.35);
-  border-radius: 6px;
-  padding: 0.8rem 1.2rem;
-  color: var(--rice);
-  font-family: var(--font-display);
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.4);
-}
-
-.story-draggable-token .token-icon {
-  font-size: 1.2rem;
-}
-
-.story-draggable-token:hover:not(:disabled) {
-  border-color: var(--kinpaku);
-  box-shadow: 0 0 15px rgba(229, 189, 59, 0.35);
-  transform: translateY(-2px);
-}
-
-.story-draggable-token.selected {
-  border-color: var(--patina);
-  background: rgba(37, 183, 166, 0.15);
-  box-shadow: 
-    0 0 20px rgba(37, 183, 166, 0.4),
-    inset 0 0 10px rgba(37, 183, 166, 0.2);
-}
-
-.story-draggable-token.placed {
-  opacity: 0.4;
-  cursor: not-allowed;
-  border-color: rgba(246, 240, 228, 0.1);
-  box-shadow: none;
-}
-
-.story-draggable-token .token-check {
-  font-size: 0.75rem;
-  color: var(--patina);
-  margin-left: 0.5rem;
-  font-weight: 700;
-}
-
-.story-tactical-map {
-  position: relative;
-  background: 
-    radial-gradient(circle at 50% 50%, rgba(29, 25, 21, 0.5) 0%, rgba(13, 10, 7, 0.95) 100%),
-    repeating-linear-gradient(0deg, rgba(229, 189, 59, 0.02) 0px, rgba(229, 189, 59, 0.02) 1px, transparent 1px, transparent 30px),
-    repeating-linear-gradient(90deg, rgba(229, 189, 59, 0.02) 0px, rgba(229, 189, 59, 0.02) 1px, transparent 1px, transparent 30px);
-  border: 1px dashed rgba(229, 189, 59, 0.2);
-  border-radius: 6px;
-  padding: 1.5rem;
-}
-
-.story-map-heading {
-  font-family: var(--font-display);
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: rgba(246, 240, 228, 0.5);
-  letter-spacing: 0.05em;
-  margin-bottom: 1.5rem;
-  text-align: left;
-}
-
-.story-map-targets {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.5rem;
-}
-
-@media (max-width: 768px) {
-  .story-map-targets {
-    grid-template-columns: 1fr;
-  }
-}
-
-.story-drop-slot {
-  position: relative;
-  background: rgba(29, 25, 21, 0.6);
-  border: 1.5px dashed rgba(229, 189, 59, 0.3);
-  border-radius: 6px;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  align-items: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.story-drop-slot.waiting-pulse {
-  border-color: var(--patina);
-  box-shadow: 0 0 15px rgba(37, 183, 166, 0.25);
-  animation: targetPulse 1.5s infinite alternate;
-}
-
-@keyframes targetPulse {
-  0% { border-color: rgba(37, 183, 166, 0.3); }
-  100% { border-color: rgba(37, 183, 166, 0.9); }
-}
-
-.story-drop-slot.occupied {
-  border-style: solid;
-  border-color: var(--patina);
-  background: rgba(37, 183, 166, 0.04);
-}
-
-.slot-glow {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle, rgba(229,189,59,0.05) 0%, transparent 80%);
-  pointer-events: none;
-}
-
-.slot-meta {
-  text-align: center;
-}
-
-.slot-title {
-  font-family: var(--font-display);
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--rice);
-  display: block;
-}
-
-.slot-desc {
-  font-size: 0.7rem;
-  color: rgba(246, 240, 228, 0.4);
-  margin-top: 0.25rem;
-  display: block;
-}
-
-.slot-dropzone {
-  width: 100%;
-  height: 60px;
-  border: 1px solid rgba(246, 240, 228, 0.08);
-  border-radius: 4px;
-  background: rgba(13, 10, 7, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  color: rgba(246, 240, 228, 0.3);
-}
-
-.slot-filled-token {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--patina);
-  font-family: var(--font-display);
-  font-weight: 700;
-}
-
-.slot-filled-token span {
-  font-size: 1.1rem;
-}
-
-.story-game-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.story-instructions-text {
-  font-size: 0.85rem;
-  color: rgba(246, 240, 228, 0.6);
-  letter-spacing: 0.03em;
-  height: 20px;
-}
-
-.story-battle-success-banner {
-  background: linear-gradient(135deg, rgba(139, 26, 26, 0.2) 0%, rgba(29, 25, 21, 0.8) 100%);
-  border: 1.5px solid #ff4d4d;
-  border-radius: 6px;
-  padding: 1.5rem;
-  max-width: 650px;
-  text-align: center;
-  box-shadow: 
-    0 0 25px rgba(255, 77, 77, 0.25),
-    inset 0 0 20px rgba(255, 77, 77, 0.1);
-}
-
-.victory-badge {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 800;
-  color: #ff4d4d;
-  letter-spacing: 0.15em;
-  display: block;
-  margin-bottom: 0.75rem;
-  text-shadow: 0 0 15px rgba(255, 77, 77, 0.4);
-}
-
-.victory-desc {
-  font-size: 0.9rem;
-  line-height: 1.7;
-  color: var(--rice);
-}
-
-.story-reset-btn {
-  background: transparent;
-  border: 1px solid rgba(246, 240, 228, 0.25);
-  color: rgba(246, 240, 228, 0.6);
-  border-radius: 4px;
-  font-family: var(--font-display);
-  font-size: 0.75rem;
-  padding: 0.4rem 1rem;
-  cursor: pointer;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  transition: all 0.2s;
-}
-
-.story-reset-btn:hover {
-  border-color: var(--kinpaku);
-  color: var(--kinpaku);
-  box-shadow: 0 0 10px rgba(229, 189, 59, 0.2);
-}
-
-/* Lacquer Glow Overrides */
-.text-gold-glow {
-  color: var(--kinpaku) !important;
-  text-shadow: 
-    0 0 20px rgba(229, 189, 59, 0.7),
-    0 0 40px rgba(229, 189, 59, 0.35) !important;
-}
-
-.text-gold-reflection {
-  text-shadow: 
-    0 2px 4px rgba(0,0,0,0.8),
-    0 0 15px rgba(229, 189, 59, 0.15);
-}
-
-.text-red-neon {
-  color: #ff1a1a !important;
-  text-shadow: 
-    0 0 25px rgba(255, 26, 26, 0.8),
-    0 0 50px rgba(255, 26, 26, 0.4) !important;
-}
-
-.card-neon-gold {
-  border-color: rgba(229, 189, 59, 0.45) !important;
-  box-shadow: 
-    0 6px 20px rgba(0,0,0,0.5),
-    inset 0 0 15px rgba(229, 189, 59, 0.08),
-    0 0 12px rgba(229, 189, 59, 0.15) !important;
-}
-
-.text-orange-neon {
-  color: #ff6600 !important;
-  text-shadow: 0 0 20px rgba(255, 102, 0, 0.5) !important;
-}
-
-/* Jitter camera shake during battle */
-@keyframes cameraJitter {
-  0%, 100% { transform: translate(0, 0); }
-  20% { transform: translate(-4px, 3px) rotate(-0.5deg); }
-  40% { transform: translate(3px, -4px) rotate(0.5deg); }
-  60% { transform: translate(-3px, -3px) rotate(-0.2deg); }
-  80% { transform: translate(4px, 4px) rotate(0.2deg); }
-}
-
-.camera-shake-active {
-  animation: cameraJitter 0.2s infinite;
-}@tailwind base;
+@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -1641,348 +1254,203 @@ button { cursor: pointer; }
     0 0 15px var(--kinpaku);
 }
 
-/* Stick Dragging Interaction (Chapter 1) */
-.story-drag-stick-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.story-drag-stick-label {
-  font-family: var(--font-display);
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--kinpaku);
-  letter-spacing: 0.15em;
-}
-
-.story-stick-slot {
-  position: relative;
-  width: 14px;
-  height: 220px;
-  background: rgba(29, 25, 21, 0.8);
-  border: 2px solid rgba(229, 189, 59, 0.4);
-  border-radius: 99px;
-  box-shadow: inset 0 0 15px rgba(0,0,0,0.8);
-}
-
-.story-stick-fill {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  border-radius: 99px;
-  background: linear-gradient(to top, var(--patina), var(--kinpaku));
-  box-shadow: 0 0 10px var(--kinpaku);
-  transition: height 0.1s ease-out;
-}
-
-.story-stick-handle {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #e5bd3b 0%, #b8941e 50%, #5c440a 100%);
-  border: 3px solid var(--rice);
-  box-shadow: 
-    0 4px 15px rgba(0,0,0,0.6),
-    0 0 15px rgba(229, 189, 59, 0.5);
-  cursor: grab;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--rice);
-  font-size: 1.2rem;
-  user-select: none;
-  touch-action: none;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  z-index: 5;
-}
-
-.story-stick-handle:active,
-.story-stick-handle.active {
-  cursor: grabbing;
-  transform: translateX(-50%) scale(1.1);
-  box-shadow: 
-    0 6px 20px rgba(0,0,0,0.8),
-    0 0 25px var(--kinpaku);
-}
-
-.story-drag-sub {
-  font-size: 0.75rem;
-  color: rgba(246, 240, 228, 0.5);
-  letter-spacing: 0.05em;
-}
-
-/* Tactical Map Game (Chapter 5) */
-.story-tactical-map-container {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  background: rgba(13, 10, 7, 0.95);
-  border: 2px solid var(--kinpaku);
-  border-radius: 8px;
-  padding: 2rem;
-  box-shadow: 
-    0 20px 50px rgba(0,0,0,0.85),
-    inset 0 0 40px rgba(229,189,59,0.05);
-  backdrop-filter: blur(10px);
-  width: 100%;
-}
-
-.story-token-bank {
-  border-bottom: 1px solid rgba(229, 189, 59, 0.15);
-  padding-bottom: 1.5rem;
-}
-
-.story-bank-title {
-  font-family: var(--font-display);
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--kinpaku);
-  letter-spacing: 0.1em;
-  margin-bottom: 1rem;
-  text-align: left;
-}
-
-.story-tokens-list {
-  display: flex;
-  gap: 1.25rem;
-  flex-wrap: wrap;
-}
-
-.story-draggable-token {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: rgba(29, 25, 21, 0.95);
-  border: 1px solid rgba(229, 189, 59, 0.35);
-  border-radius: 6px;
-  padding: 0.8rem 1.2rem;
-  color: var(--rice);
-  font-family: var(--font-display);
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.4);
-}
-
-.story-draggable-token .token-icon {
-  font-size: 1.2rem;
-}
-
-.story-draggable-token:hover:not(:disabled) {
-  border-color: var(--kinpaku);
-  box-shadow: 0 0 15px rgba(229, 189, 59, 0.35);
-  transform: translateY(-2px);
-}
-
-.story-draggable-token.selected {
-  border-color: var(--patina);
-  background: rgba(37, 183, 166, 0.15);
-  box-shadow: 
-    0 0 20px rgba(37, 183, 166, 0.4),
-    inset 0 0 10px rgba(37, 183, 166, 0.2);
-}
-
-.story-draggable-token.placed {
-  opacity: 0.4;
-  cursor: not-allowed;
-  border-color: rgba(246, 240, 228, 0.1);
-  box-shadow: none;
-}
-
-.story-draggable-token .token-check {
-  font-size: 0.75rem;
-  color: var(--patina);
-  margin-left: 0.5rem;
-  font-weight: 700;
-}
-
-.story-tactical-map {
-  position: relative;
-  background: 
-    radial-gradient(circle at 50% 50%, rgba(29, 25, 21, 0.5) 0%, rgba(13, 10, 7, 0.95) 100%),
-    repeating-linear-gradient(0deg, rgba(229, 189, 59, 0.02) 0px, rgba(229, 189, 59, 0.02) 1px, transparent 1px, transparent 30px),
-    repeating-linear-gradient(90deg, rgba(229, 189, 59, 0.02) 0px, rgba(229, 189, 59, 0.02) 1px, transparent 1px, transparent 30px);
-  border: 1px dashed rgba(229, 189, 59, 0.2);
-  border-radius: 6px;
-  padding: 1.5rem;
-}
-
-.story-map-heading {
-  font-family: var(--font-display);
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: rgba(246, 240, 228, 0.5);
-  letter-spacing: 0.05em;
-  margin-bottom: 1.5rem;
-  text-align: left;
-}
-
-.story-map-targets {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.5rem;
-}
-
-@media (max-width: 768px) {
-  .story-map-targets {
-    grid-template-columns: 1fr;
-  }
-}
-
-.story-drop-slot {
-  position: relative;
-  background: rgba(29, 25, 21, 0.6);
-  border: 1.5px dashed rgba(229, 189, 59, 0.3);
-  border-radius: 6px;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  align-items: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.story-drop-slot.waiting-pulse {
-  border-color: var(--patina);
-  box-shadow: 0 0 15px rgba(37, 183, 166, 0.25);
-  animation: targetPulse 1.5s infinite alternate;
-}
-
-@keyframes targetPulse {
-  0% { border-color: rgba(37, 183, 166, 0.3); }
-  100% { border-color: rgba(37, 183, 166, 0.9); }
-}
-
-.story-drop-slot.occupied {
-  border-style: solid;
-  border-color: var(--patina);
-  background: rgba(37, 183, 166, 0.04);
-}
-
-.slot-glow {
+/* Cinematic Slideshow Container & Crossfading Slides */
+.story-slideshow-container {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle, rgba(229,189,59,0.05) 0%, transparent 80%);
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.story-slide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 1.2s ease-in-out, visibility 1.2s ease-in-out;
+  z-index: 1;
+}
+
+.story-slide.active {
+  opacity: 1;
+  visibility: visible;
+  z-index: 2;
+}
+
+/* Ken Burns slow panning cinematic effect */
+@keyframes kenBurns {
+  0% { transform: scale(1.15) translate(0, 0); }
+  100% { transform: scale(1.03) translate(-1.5%, 1%); }
+}
+
+.kenburns-active {
+  animation: kenBurns 15s ease-out forwards;
+}
+
+/* Cinematic Fullscreen Background & Camera Layers */
+.story-full-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.story-bg-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.story-vignette-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(3, 6, 5, 0.25) 0%, rgba(3, 6, 5, 0.96) 85%);
   pointer-events: none;
+  z-index: 3;
 }
 
-.slot-meta {
+.fire-overlay {
+  background: radial-gradient(circle at center, rgba(80, 25, 10, 0.32) 0%, rgba(3, 6, 5, 0.97) 90%) !important;
+}
+
+.battle-overlay {
+  background: radial-gradient(circle at center, rgba(110, 30, 20, 0.42) 0%, rgba(2, 3, 2, 0.98) 95%) !important;
+}
+
+.victory-overlay {
+  background: radial-gradient(circle at center, rgba(90, 55, 20, 0.22) 0%, rgba(3, 6, 5, 0.95) 90%) !important;
+}
+
+.scroll-bg-texture {
+  background: radial-gradient(circle, #0f0c0a 0%, #030403 100%);
+}
+
+/* Movie Subtitle Bar / Ribbon */
+.story-movie-subtitle-bar {
+  position: absolute;
+  bottom: 8%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(760px, 92vw);
+  background: rgba(13, 10, 7, 0.85);
+  border: 1.5px solid rgba(229, 189, 59, 0.35);
+  border-radius: 8px;
+  padding: 1.6rem 2.4rem;
   text-align: center;
+  backdrop-filter: blur(14px);
+  box-shadow: 
+    0 15px 45px rgba(0,0,0,0.9),
+    0 0 25px rgba(229,189,59,0.06);
+  z-index: 10;
 }
 
-.slot-title {
+.story-chapter-title {
   font-family: var(--font-display);
   font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--rice);
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
   display: block;
 }
 
-.slot-desc {
-  font-size: 0.7rem;
+
+
+
+
+/* Karaoke Subtitle Word Highlight */
+.story-subtitle-words {
+  display: inline;
+  text-align: center;
+}
+
+.story-sub-phrase {
+  font-family: var(--font-body);
+  font-size: clamp(0.95rem, 2.2vw, 1.15rem);
+  line-height: 1.85;
   color: rgba(246, 240, 228, 0.4);
-  margin-top: 0.25rem;
-  display: block;
+  transition: color 0.25s ease, text-shadow 0.25s ease;
+  display: inline;
+  margin-right: 6px;
 }
 
-.slot-dropzone {
-  width: 100%;
-  height: 60px;
-  border: 1px solid rgba(246, 240, 228, 0.08);
-  border-radius: 4px;
-  background: rgba(13, 10, 7, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  color: rgba(246, 240, 228, 0.3);
-}
-
-.slot-filled-token {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--patina);
-  font-family: var(--font-display);
+.story-sub-phrase.phrase-active {
+  color: var(--kinpaku) !important;
+  text-shadow: 0 0 12px rgba(229, 189, 59, 0.7);
   font-weight: 700;
 }
 
-.slot-filled-token span {
-  font-size: 1.1rem;
+.story-sub-phrase.phrase-passed {
+  color: rgba(246, 240, 228, 0.85);
 }
 
-.story-game-actions {
+/* Cinematic Foreground Layer */
+.story-cinematic-foreground {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   align-items: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
 }
 
-.story-instructions-text {
-  font-size: 0.85rem;
-  color: rgba(246, 240, 228, 0.6);
-  letter-spacing: 0.03em;
-  height: 20px;
+.story-cinematic-foreground .puppet-content {
+  pointer-events: auto;
 }
 
-.story-battle-success-banner {
-  background: linear-gradient(135deg, rgba(139, 26, 26, 0.2) 0%, rgba(29, 25, 21, 0.8) 100%);
-  border: 1.5px solid #ff4d4d;
-  border-radius: 6px;
-  padding: 1.5rem;
-  max-width: 650px;
-  text-align: center;
+.story-subtitle-text {
+  font-family: var(--font-body);
+  font-size: clamp(0.95rem, 2.2vw, 1.1rem);
+  line-height: 1.85;
+  color: rgba(246, 240, 228, 0.92);
+  margin: 0;
+}
+
+/* Oath Scroll (Chapter 3) */
+.story-oath-scroll-paper {
+  background: #15110e;
+  border: 2px solid var(--kinpaku);
+  border-radius: 8px;
+  padding: 2.5rem 3.5rem;
   box-shadow: 
-    0 0 25px rgba(255, 77, 77, 0.25),
-    inset 0 0 20px rgba(255, 77, 77, 0.1);
+    0 25px 60px rgba(0,0,0,0.9),
+    inset 0 0 45px rgba(229,189,59,0.08);
+  max-width: 700px;
+  margin-bottom: 1.5rem;
+  position: relative;
 }
 
-.victory-badge {
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  font-weight: 800;
-  color: #ff4d4d;
-  letter-spacing: 0.15em;
-  display: block;
-  margin-bottom: 0.75rem;
-  text-shadow: 0 0 15px rgba(255, 77, 77, 0.4);
-}
-
-.victory-desc {
-  font-size: 0.9rem;
-  line-height: 1.7;
+.story-oath-body-text {
+  font-family: var(--font-historical);
+  font-size: clamp(1.2rem, 2.6vw, 1.55rem);
+  font-style: italic;
+  line-height: 2.15;
   color: var(--rice);
+  text-shadow: 0 0 15px rgba(229,189,59,0.12);
 }
 
-.story-reset-btn {
-  background: transparent;
-  border: 1px solid rgba(246, 240, 228, 0.25);
-  color: rgba(246, 240, 228, 0.6);
-  border-radius: 4px;
-  font-family: var(--font-display);
-  font-size: 0.75rem;
-  padding: 0.4rem 1rem;
-  cursor: pointer;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  transition: all 0.2s;
-}
-
-.story-reset-btn:hover {
-  border-color: var(--kinpaku);
+.story-oath-author {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
   color: var(--kinpaku);
-  box-shadow: 0 0 10px rgba(229, 189, 59, 0.2);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 2rem;
 }
+
+
+
+
 
 /* Lacquer Glow Overrides */
 .text-gold-glow {
@@ -1990,12 +1458,6 @@ button { cursor: pointer; }
   text-shadow: 
     0 0 20px rgba(229, 189, 59, 0.7),
     0 0 40px rgba(229, 189, 59, 0.35) !important;
-}
-
-.text-gold-reflection {
-  text-shadow: 
-    0 2px 4px rgba(0,0,0,0.8),
-    0 0 15px rgba(229, 189, 59, 0.15);
 }
 
 .text-red-neon {
@@ -2011,11 +1473,6 @@ button { cursor: pointer; }
     0 6px 20px rgba(0,0,0,0.5),
     inset 0 0 15px rgba(229, 189, 59, 0.08),
     0 0 12px rgba(229, 189, 59, 0.15) !important;
-}
-
-.text-orange-neon {
-  color: #ff6600 !important;
-  text-shadow: 0 0 20px rgba(255, 102, 0, 0.5) !important;
 }
 
 /* Jitter camera shake during battle */
@@ -2293,584 +1750,75 @@ button { cursor: pointer; }
   50%       { transform: translateY(-8px); }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   QUANG TRUNG CINEMATIC INTRO — Complete Stylesheet
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-/* Root container */
-.cineintro-root {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100dvh;
-  background: #030403;
-  overflow: hidden;
-  z-index: 9999;
-  /* Lora: elegant serif with full Vietnamese diacritic support */
-  font-family: 'Lora', 'Be Vietnam Pro', serif;
-}
-
-/* Flash effect when "QUANG TRUNG" appears */
-.cineintro-flash::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(229, 189, 59, 0.25);
-  animation: cineFlash 0.4s ease-out forwards;
-  pointer-events: none;
-  z-index: 80;
-}
-
-@keyframes cineFlash {
-  0%   { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-/* Canvas layer */
-.cineintro-canvas {
+/* Starting Cinematic Play Overlay */
+.story-play-overlay {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  pointer-events: none;
-  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, rgba(13, 10, 7, 0.75) 0%, rgba(3, 4, 3, 0.98) 100%);
+  backdrop-filter: blur(12px);
+  z-index: 100;
+  cursor: pointer;
 }
 
-/* ── Background Slides ─────────────────────────────────────────────────── */
-.cineintro-bg-layer {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 1;
-}
-
-.cineintro-slide {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  visibility: hidden;
-  z-index: 1;
-  /* No CSS transition — we use keyframe animations for cinematic control */
-}
-
-/* ── ENTERING: cinematic IRIS OPEN — circle wipes outward to reveal new scene ── */
-.cineintro-slide-active {
-  opacity: 1;
-  visibility: visible;
-  z-index: 2;
-  animation: cineSlideEnter 1.1s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
-}
-
-@keyframes cineSlideEnter {
-  0%   { clip-path: circle(0% at 50% 38%); }
-  100% { clip-path: circle(150% at 50% 38%); }
-}
-
-/* ── EXITING: old scene blurs and fades up ── */
-.cineintro-slide-exiting {
-  opacity: 0 !important;
-  visibility: visible !important;
-  z-index: 3 !important;
-  animation: cineSlideExit 0.75s cubic-bezier(0.55, 0, 1, 0.45) both;
-}
-
-@keyframes cineSlideExit {
-  0%   { opacity: 1; filter: blur(0px) brightness(1);   transform: scale(1); }
-  50%  { opacity: 0.5; filter: blur(5px) brightness(1.4); transform: scale(1.03); }
-  100% { opacity: 0; filter: blur(14px) brightness(1.7); transform: scale(1.06); }
-}
-
-/* ── TRANSITION FLASH OVERLAY: golden ink wash between scenes ── */
-.cineintro-scene-flash {
-  position: absolute;
-  inset: 0;
-  z-index: 12;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse at 50% 50%,
-      rgba(229, 189, 59, 0.55) 0%,
-      rgba(180, 130, 20, 0.18) 35%,
-      rgba(10, 6, 3, 0.0) 65%),
-    linear-gradient(180deg,
-      rgba(229, 189, 59, 0.05) 0%,
-      rgba(0, 0, 0, 0) 50%,
-      rgba(229, 189, 59, 0.04) 100%);
-  animation: cineSceneFlash 0.75s ease-out forwards;
-}
-
-@keyframes cineSceneFlash {
-  0%   { opacity: 0; transform: scale(0.92); }
-  28%  { opacity: 1; transform: scale(1.0); }
-  100% { opacity: 0; transform: scale(1.0); }
-}
-
-.cineintro-bg-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform-origin: center center;
-}
-
-.cineintro-bg-dark {
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(ellipse at center, #0d0a06 0%, #010201 100%);
-}
-
-/* ── Ken Burns Animations ─────────────────────────────────────────────── */
-@keyframes kbRight {
-  0%   { transform: scale(1.12) translate(0, 0); }
-  100% { transform: scale(1.04) translate(-2.5%, 1%); }
-}
-@keyframes kbLeft {
-  0%   { transform: scale(1.12) translate(0, 0); }
-  100% { transform: scale(1.04) translate(2.5%, -1%); }
-}
-@keyframes kbUp {
-  0%   { transform: scale(1.12) translate(0, 0); }
-  100% { transform: scale(1.04) translate(0, -2%); }
-}
-@keyframes kbShake {
-  0%, 100% { transform: scale(1.1) translate(0, 0); }
-  10%, 30%, 50%, 70%, 90% { transform: scale(1.12) translate(-2px, 1px) rotate(-0.3deg); }
-  20%, 40%, 60%, 80%      { transform: scale(1.12) translate(2px, -1px) rotate(0.3deg); }
-}
-
-.cineintro-bg-kenburns-right  { animation: kbRight 20s ease-out forwards; }
-.cineintro-bg-kenburns-left   { animation: kbLeft  20s ease-out forwards; }
-.cineintro-bg-kenburns-up     { animation: kbUp    20s ease-out forwards; }
-.cineintro-bg-shake           { animation: kbShake  0.6s ease-in-out infinite; }
-.cineintro-bg-still           { transform: scale(1.05); }
-
-/* Victory Ken Burns: anchored at face area (top 10%), pans slowly down */
-.cineintro-bg-kenburns-victory {
-  transform-origin: 50% 10% !important; /* Scale FROM face area, not center */
-  animation: kbVictory 25s ease-out forwards;
-}
-
-@keyframes kbVictory {
-  0%   { transform: scale(1.06); }
-  100% { transform: scale(1.01) translate(-1%, 3%); }
-}
-
-/* ── Overlay Tints ────────────────────────────────────────────────────── */
-.cineintro-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 3;
-}
-
-.overlay-dark    { background: radial-gradient(ellipse at center, rgba(3,4,3,0.55) 0%, rgba(1,2,1,0.97) 80%); }
-.overlay-dawn    { background: radial-gradient(ellipse at 50% 60%, rgba(60,30,5,0.25) 0%, rgba(3,4,3,0.92) 85%); }
-.overlay-gold    { background: radial-gradient(ellipse at 50% 40%, rgba(100,65,5,0.18) 0%, rgba(3,4,3,0.94) 85%); }
-.overlay-fire    { background: radial-gradient(ellipse at 50% 70%, rgba(90,25,5,0.35) 0%, rgba(3,4,3,0.96) 85%); }
-.overlay-battle  { background: radial-gradient(ellipse at 50% 50%, rgba(120,20,10,0.45) 0%, rgba(2,2,2,0.97) 85%); }
-/* Victory overlay: transparent "window" around face (top 25%), dark at edges */
-.overlay-victory {
-  background:
-    radial-gradient(
-      ellipse 65% 55% at 50% 22%,
-      rgba(0, 0, 0, 0.02) 0%,
-      rgba(5, 3, 1, 0.28) 45%,
-      rgba(3, 4, 3, 0.90) 85%
-    );
-}
-
-/* ── Text Subtitle Block ──────────────────────────────────────────────── */
-.cineintro-subtitle-wrapper {
-  position: absolute;
-  bottom: 11%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(860px, 92vw);
-  text-align: center;
-  z-index: 20;
+.story-play-overlay-content {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  transition: opacity 0.75s ease-in-out;
-  /* Lora: designed for screen reading, beautiful with Vietnamese */
-  font-family: 'Lora', 'Be Vietnam Pro', serif;
-}
-
-.cineintro-subtitle-fade {
-  opacity: 0;
-}
-
-.cineintro-text-line {
-  font-family: 'Lora', 'Be Vietnam Pro', serif;
-  font-size: clamp(1.05rem, 2.5vw, 1.3rem);
-  font-weight: 400;
-  line-height: 1.85;
-  letter-spacing: 0.008em;
-  color: rgba(246, 240, 228, 0.15);
-  text-shadow: none;
-  transition: color 0.38s ease, text-shadow 0.38s ease, transform 0.38s ease, opacity 0.38s ease;
-  transform: translateY(5px);
-  opacity: 0.6;
-}
-
-.cineintro-line-active {
-  color: #f8f2e6 !important;
-  opacity: 1 !important;
-  font-weight: 500;
-  text-shadow:
-    0 0 22px rgba(229,189,59,0.55),
-    0 0 50px rgba(229,189,59,0.18),
-    0 2px 10px rgba(0,0,0,0.95);
-  transform: translateY(0) scale(1.012) !important;
-  letter-spacing: 0.015em;
-}
-
-.cineintro-line-passed {
-  color: rgba(246, 240, 228, 0.48) !important;
-  opacity: 0.85 !important;
-  transform: translateY(0) !important;
-}
-
-.cineintro-line-pending {
-  color: rgba(246, 240, 228, 0.10) !important;
-  opacity: 0.5 !important;
-}
-
-/* Title-style lines (uppercase announcements) */
-.cineintro-line-title {
-  font-family: 'Be Vietnam Pro', sans-serif;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  font-size: clamp(1.1rem, 2.9vw, 1.55rem) !important;
-  text-transform: uppercase;
-}
-
-/* Epic lines (QUANG TRUNG) — Cinzel Decorative for pure Latin drama */
-.cineintro-line-epic {
-  font-family: 'Cinzel Decorative', 'Cinzel', serif;
-  font-size: clamp(2.4rem, 6.5vw, 4.4rem) !important;
-  font-weight: 900;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  color: rgba(246, 240, 228, 0.12) !important;
-  opacity: 0.5 !important;
-  text-shadow: none !important;
-  transform: scale(0.96) !important;
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
-}
-
-/* Epic line when ACTIVE — full gold reveal with dramatic pulse */
-.cineintro-line-epic.cineintro-line-active {
-  color: var(--kinpaku) !important;
-  opacity: 1 !important;
-  transform: scale(1.06) !important;
-  text-shadow:
-    0 0 30px rgba(229,189,59,1),
-    0 0 70px rgba(229,189,59,0.6),
-    0 0 120px rgba(229,189,59,0.25) !important;
-  animation: epicPulse 2s ease-in-out infinite alternate;
-}
-
-@keyframes epicPulse {
-  0%   {
-    text-shadow: 0 0 30px rgba(229,189,59,0.9), 0 0 70px rgba(229,189,59,0.5);
-    letter-spacing: 0.28em;
-  }
-  100% {
-    text-shadow: 0 0 50px rgba(229,189,59,1), 0 0 110px rgba(229,189,59,0.75), 0 0 180px rgba(229,189,59,0.3);
-    letter-spacing: 0.32em;
-  }
-}
-
-/* Heroic style (XUẤT BINH) - strong, fiery, brave */
-.cineintro-line-heroic {
-  font-family: 'Cinzel', 'Be Vietnam Pro', sans-serif;
-  font-size: clamp(1.6rem, 4vw, 2.4rem) !important;
-  font-weight: 900;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: rgba(246, 240, 228, 0.15) !important;
-  opacity: 0.5 !important;
-  text-shadow: none !important;
-  transform: scale(0.96) translateY(5px) !important;
-  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-}
-
-.cineintro-line-heroic.cineintro-line-active {
-  color: #ff7300 !important; /* Fiery orange-red */
-  opacity: 1 !important;
-  transform: scale(1.12) translateY(0) !important;
-  text-shadow:
-    0 0 25px rgba(255, 115, 0, 0.8),
-    0 0 50px rgba(255, 60, 0, 0.5),
-    0 0 100px rgba(255, 60, 0, 0.2),
-    0 2px 10px rgba(0, 0, 0, 0.95) !important;
-  animation: heroicBreath 1.5s ease-in-out infinite alternate;
-}
-
-@keyframes heroicBreath {
-  0% { transform: scale(1.1); text-shadow: 0 0 25px rgba(255, 115, 0, 0.8), 0 0 50px rgba(255, 60, 0, 0.5); }
-  100% { transform: scale(1.14); text-shadow: 0 0 35px rgba(255, 115, 0, 1), 0 0 70px rgba(255, 60, 0, 0.8), 0 0 120px rgba(255, 60, 0, 0.4); }
-}
-
-/* Hardship style (500 cây số trong vòng 7 ngày) - grueling, heavy, dusty ash-gold */
-.cineintro-line-hardship {
-  font-family: 'Lora', 'Be Vietnam Pro', serif;
-  font-size: clamp(1.2rem, 3.2vw, 1.6rem) !important;
-  font-weight: 700;
-  font-style: italic;
-  letter-spacing: 0.04em;
-  color: rgba(246, 240, 228, 0.12) !important;
-  opacity: 0.5 !important;
-  text-shadow: none !important;
-  transform: scale(0.98) translateY(5px) !important;
-  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1) !important;
-}
-
-.cineintro-line-hardship.cineintro-line-active {
-  color: #cfc2ad !important; /* Steely ash-gold */
-  opacity: 1 !important;
-  transform: scale(1.05) translateY(0) !important;
-  text-shadow:
-    0 0 18px rgba(207, 194, 173, 0.5),
-    0 0 35px rgba(207, 194, 173, 0.2),
-    0 2px 8px rgba(0, 0, 0, 0.95) !important;
-  animation: hardshipTremble 0.8s ease-in-out infinite alternate;
-}
-
-@keyframes hardshipTremble {
-  0% { transform: scale(1.04) translate(-0.5px, 0.5px); }
-  100% { transform: scale(1.05) translate(0.5px, -0.5px); }
-}
-
-
-/* ── Cinematic Vignette (per-slide, inside each cineintro-slide) ─────── */
-.cineintro-vignette {
-  position: absolute;
-  inset: 0;
+  align-items: center;
+  text-align: center;
+  gap: 1.5rem;
   pointer-events: none;
-  z-index: 4;
-  background:
-    radial-gradient(
-      ellipse 90% 90% at 50% 50%,
-      transparent 40%,
-      rgba(0, 0, 0, 0.55) 85%,
-      rgba(0, 0, 0, 0.88) 100%
-    );
 }
 
-/* ── Scanline Film Texture (global overlay, very subtle) ─────────────── */
-.cineintro-scanlines {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 6;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0px,
-    transparent 2px,
-    rgba(0, 0, 0, 0.028) 2px,
-    rgba(0, 0, 0, 0.028) 4px
-  );
-  background-size: 100% 4px;
-  mix-blend-mode: multiply;
-}
-
-/* ── Victory Scene: Golden God-Rays (light breaking through clouds) ───── */
-.cineintro-light-rays {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 7;
-  overflow: hidden;
-  animation: lightRaysFadeIn 2s ease-out forwards;
-}
-
-@keyframes lightRaysFadeIn {
-  0%   { opacity: 0; }
-  100% { opacity: 1; }
-}
-
-/* Multiple diagonal rays — boosted opacity for real visibility */
-.cineintro-light-rays::before {
-  content: '';
-  position: absolute;
-  top: -60%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 220%;
-  height: 180%;
-  background:
-    /* Primary bold golden ray */
-    linear-gradient(
-      175deg,
-      transparent 30%,
-      rgba(229, 189, 59, 0.22) 33%,
-      rgba(255, 230, 110, 0.16) 35.5%,
-      transparent 38%
-    ),
-    /* Secondary ray left */
-    linear-gradient(
-      166deg,
-      transparent 26%,
-      rgba(229, 189, 59, 0.14) 29%,
-      transparent 32%
-    ),
-    /* Third ray right */
-    linear-gradient(
-      183deg,
-      transparent 38%,
-      rgba(229, 189, 59, 0.12) 41%,
-      transparent 44%
-    ),
-    /* Wide warm glow from above */
-    linear-gradient(
-      to bottom,
-      rgba(255, 200, 60, 0.18) 0%,
-      rgba(255, 200, 60, 0.07) 20%,
-      transparent 45%
-    );
-  animation: lightRaysDrift 6s ease-in-out infinite alternate;
-}
-
-@keyframes lightRaysDrift {
-  0%   { transform: translateX(-50%) rotate(-2deg); opacity: 0.8; }
-  100% { transform: translateX(-50%) rotate(2deg);  opacity: 1.0; }
-}
-
-.cineintro-light-rays::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  /* Dramatic warm golden sun bloom — much more visible */
-  background: radial-gradient(
-    ellipse 70% 40% at 52% -2%,
-    rgba(255, 215, 80, 0.35) 0%,
-    rgba(229, 189, 59, 0.18) 40%,
-    rgba(200, 140, 20, 0.06) 65%,
-    transparent 80%
-  );
-  animation: sunBloom 4s ease-in-out infinite alternate;
-}
-
-@keyframes sunBloom {
-  0%   { opacity: 0.55; transform: scale(0.97) translateY(2%); }
-  100% { opacity: 1.00; transform: scale(1.03) translateY(-2%); }
-}
-
-/* Victory warm amber glow — sunset rising from below */
-.cineintro-victory-warmglow {
-  position: absolute;
-  inset: 0;
-  z-index: 9;
-  pointer-events: none;
-  background:
-    linear-gradient(
-      to top,
-      rgba(200, 80, 10, 0.30) 0%,
-      rgba(240, 140, 25, 0.18) 20%,
-      rgba(250, 200, 55, 0.08) 40%,
-      transparent 60%
-    );
-  animation: victoryWarmPulse 4.5s ease-in-out infinite alternate;
-}
-
-@keyframes victoryWarmPulse {
-  0%   { opacity: 0.55; }
-  100% { opacity: 1.00; }
-}
-
-/* ── Progress Bar ─────────────────────────────────────────────────────── */
-.cineintro-progress {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 3px;
-  background: rgba(246,240,228,0.08);
-  z-index: 30;
-}
-
-.cineintro-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, rgba(115,100,50,0.8), rgba(229,189,59,0.9));
-  box-shadow: 0 0 8px rgba(229,189,59,0.5);
-  transition: width 0.08s linear;
-}
-
-/* ── Scene Indicator Dots ─────────────────────────────────────────────── */
-.cineintro-scene-dots {
-  position: absolute;
-  top: 22px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
-  z-index: 30;
-}
-
-.cineintro-dot {
-  width: 7px;
-  height: 7px;
+.story-play-icon-glow {
+  width: 90px;
+  height: 90px;
   border-radius: 50%;
-  background: rgba(246,240,228,0.18);
-  border: 1px solid rgba(246,240,228,0.25);
-  transition: all 0.35s ease;
-}
-
-.cineintro-dot-passed {
-  background: rgba(229,189,59,0.5);
-  border-color: rgba(229,189,59,0.6);
-}
-
-.cineintro-dot-active {
-  background: var(--kinpaku);
-  border-color: var(--kinpaku);
-  box-shadow: 0 0 10px rgba(229,189,59,0.7);
-  transform: scale(1.3);
-}
-
-/* ── Chapter Label (top left) ─────────────────────────────────────────── */
-.cineintro-chapter-label {
-  position: absolute;
-  top: 18px;
-  left: 22px;
-  font-family: 'Be Vietnam Pro', 'Cinzel', sans-serif;
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: rgba(229,189,59,0.6);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  z-index: 30;
-  text-shadow: 0 2px 6px rgba(0,0,0,0.8);
-}
-
-/* ── Skip Button ──────────────────────────────────────────────────────── */
-.cineintro-skip-btn {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  font-family: 'Be Vietnam Pro', sans-serif;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: rgba(246,240,228,0.4);
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  background: rgba(13,10,7,0.7);
-  border: 1px solid rgba(246,240,228,0.15);
-  border-radius: 4px;
-  padding: 0.45rem 1rem;
-  cursor: pointer;
-  z-index: 50;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(6px);
-}
-
-.cineintro-skip-btn:hover {
+  background: rgba(13, 10, 7, 0.9);
+  border: 2px solid var(--kinpaku);
   color: var(--kinpaku);
-  border-color: rgba(229,189,59,0.4);
-  background: rgba(29,25,21,0.9);
-  box-shadow: 0 0 12px rgba(229,189,59,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 
+    0 0 30px rgba(229, 189, 59, 0.4),
+    inset 0 0 15px rgba(229, 189, 59, 0.2);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s;
+  animation: pulseGlow 2s infinite alternate;
 }
 
+.story-play-overlay:hover .story-play-icon-glow {
+  transform: scale(1.15);
+  border-color: #fff;
+  color: #fff;
+  box-shadow: 
+    0 0 45px rgba(229, 189, 59, 0.7),
+    inset 0 0 25px rgba(229, 189, 59, 0.4);
+}
+
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 20px rgba(229, 189, 59, 0.3); }
+  100% { box-shadow: 0 0 40px rgba(229, 189, 59, 0.6); }
+}
+
+.story-play-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  margin: 0;
+}
+
+.story-play-subtitle {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(246, 240, 228, 0.55);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin: 0;
+}

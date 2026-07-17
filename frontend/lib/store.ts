@@ -29,6 +29,7 @@ type HistoryState = {
   beginSpeaking: () => void;
   endSpeaking: () => void;
   clearChat: () => void;
+  loadSessionMessages: (characterId: string, messages: ChatMessage[]) => void;
 };
 
 export const useHistoryStore = create<HistoryState>((set) => ({
@@ -114,6 +115,15 @@ export const useHistoryStore = create<HistoryState>((set) => ({
       messages: [],
       status: "idle",
       statusText: "Đã xóa hội thoại",
+      isSending: false,
+      visual: DEFAULT_VISUAL,
+    }),
+  loadSessionMessages: (characterId, messages) =>
+    set({
+      selectedCharacterId: characterId,
+      messages,
+      status: "idle",
+      statusText: "Đã nạp lại phiên hội thoại cũ",
       isSending: false,
       visual: DEFAULT_VISUAL,
     }),

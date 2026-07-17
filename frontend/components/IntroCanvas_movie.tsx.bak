@@ -1,0 +1,320 @@
+"use client";
+
+import { useEffect, useRef, useCallback } from "react";
+
+// ─── Particle Types ────────────────────────────────────────────────
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  opacity: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  type: "ember" | "mist" | "blossom" | "dust" | "lantern" | "confetti";
+  rotation?: number;
+  rotSpeed?: number;
+}
+
+// ─── Canvas Manager Hook ───────────────────────────────────────────
+export function useIntroCanvas(
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  activeChapter: number,
+  scrollProgress: number,
+  mousePos: { x: number; y: number }
+) {
+  const particlesRef = useRef<Particle[]>([]);
+  const frameRef = useRef<number>(0);
+  const timeRef = useRef<number>(0);
+
+  // ─── Spawn particles based on chapter ────────────────────────────
+  const spawnParticles = useCallback(
+    (width: number, height: number, chapter: number) => {
+      const particles = particlesRef.current;
+
+      // 1. Lanterns / Fireflies (ch 0 & 1) — floating golden dots
+      if (chapter <= 1) {
+        if (particles.filter((p) => p.type === "lantern").length < 25 && Math.random() < 0.05) {
+          particles.push({
+            x: Math.random() * width,
+            y: height * 0.4 + Math.random() * height * 0.5,
+            vx: (Math.random() - 0.5) * 0.4,
+            vy: -0.2 - Math.random() * 0.4,
+            size: 2 + Math.random() * 3,
+            opacity: 0.4 + Math.random() * 0.5,
+            life: 0,
+            maxLife: 400 + Math.random() * 300,
+            color: `hsl(${45 + Math.random() * 15}, 90%, ${70 + Math.random() * 20}%)`,
+            type: "lantern",
+          });
+        }
+      }
+
+      // 2. Mist / Atmospheric Fog (all chapters, denser in Ch 0, 1, 3, 5)
+      const maxMist = chapter === 3 || chapter === 5 ? 12 : 6;
+      if (particles.filter((p) => p.type === "mist").length < maxMist && Math.random() < 0.02) {
+        particles.push({
+          x: -150 + Math.random() * (width + 300),
+          y: height * 0.2 + Math.random() * height * 0.6,
+          vx: 0.15 + Math.random() * 0.3,
+          vy: (Math.random() - 0.5) * 0.08,
+          size: 200 + Math.random() * 250,
+          opacity: chapter === 3 || chapter === 5 ? 0.06 + Math.random() * 0.06 : 0.03 + Math.random() * 0.04,
+          life: 0,
+          maxLife: 900 + Math.random() * 600,
+          color: chapter === 3 || chapter === 5 ? "rgba(40,15,5,1)" : "rgba(10,30,22,1)",
+          type: "mist",
+        });
+      }
+
+      // 3. Embers (ch 3, 4, 5) — glowing fire sparks rising
+      if (chapter === 3 || chapter === 4 || chapter === 5) {
+        const maxEmbers = chapter === 5 ? 80 : 35;
+        const spawnRate = chapter === 5 ? 0.22 : 0.08;
+        if (particles.filter((p) => p.type === "ember").length < maxEmbers && Math.random() < spawnRate) {
+          particles.push({
+            x: Math.random() * width,
+            y: height + 15,
+            vx: (Math.random() - 0.5) * 1.8,
+            vy: -1.2 - Math.random() * 2.5,
+            size: 1.5 + Math.random() * 3.5,
+            opacity: 0.8 + Math.random() * 0.2,
+            life: 0,
+            maxLife: 150 + Math.random() * 150,
+            color: `hsl(${15 + Math.random() * 25}, 100%, ${55 + Math.random() * 20}%)`,
+            type: "ember",
+          });
+        }
+      }
+
+      // 4. Battle Dust (ch 4, 5) — dust blowing across the screen
+      if (chapter === 4 || chapter === 5) {
+        const maxDust = chapter === 5 ? 55 : 30;
+        if (particles.filter((p) => p.type === "dust").length < maxDust && Math.random() < 0.15) {
+          particles.push({
+            x: -50,
+            y: height * 0.3 + Math.random() * height * 0.5,
+            vx: 3 + Math.random() * 4,
+            vy: (Math.random() - 0.5) * 0.6,
+            size: 50 + Math.random() * 80,
+            opacity: 0.02 + Math.random() * 0.03,
+            life: 0,
+            maxLife: 180 + Math.random() * 150,
+            color: "rgba(160,130,90,1)",
+            type: "dust",
+          });
+        }
+      }
+
+      // 5. Cherry Blossoms (ch 6) — cherry blossoms falling
+      if (chapter === 6) {
+        if (particles.filter((p) => p.type === "blossom").length < 35 && Math.random() < 0.06) {
+          particles.push({
+            x: Math.random() * width,
+            y: -20,
+            vx: 0.4 + Math.random() * 0.8,
+            vy: 0.8 + Math.random() * 1.4,
+            size: 6 + Math.random() * 8,
+            opacity: 0.6 + Math.random() * 0.4,
+            life: 0,
+            maxLife: 450 + Math.random() * 350,
+            color: `hsl(${345 + Math.random() * 20}, ${75 + Math.random() * 20}%, ${75 + Math.random() * 10}%)`,
+            type: "blossom",
+            rotation: Math.random() * 360,
+            rotSpeed: (Math.random() - 0.5) * 4,
+          });
+        }
+      }
+
+      // 6. Confetti (ch 6) — golden celebration fragments
+      if (chapter === 6) {
+        if (particles.filter((p) => p.type === "confetti").length < 40 && Math.random() < 0.08) {
+          particles.push({
+            x: Math.random() * width,
+            y: -20,
+            vx: (Math.random() - 0.5) * 2.5,
+            vy: 1.2 + Math.random() * 2,
+            size: 4 + Math.random() * 6,
+            opacity: 0.8 + Math.random() * 0.2,
+            life: 0,
+            maxLife: 300 + Math.random() * 200,
+            color: `hsl(${40 + Math.random() * 15}, 90%, ${60 + Math.random() * 20}%)`,
+            type: "confetti",
+            rotation: Math.random() * 360,
+            rotSpeed: (Math.random() - 0.5) * 10,
+          });
+        }
+      }
+    },
+    []
+  );
+
+  // ─── Update & draw loop ──────────────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const draw = () => {
+      const { width, height } = canvas;
+      ctx.clearRect(0, 0, width, height);
+      timeRef.current++;
+      const t = timeRef.current;
+
+      // ── Draw Cinematic Vignette & Ambient Radial Light ──
+      const cx = width / 2 + mousePos.x * 30;
+      const cy = height / 2 + mousePos.y * 20;
+
+      let glowColor1 = "rgba(10, 30, 22, 0.15)";
+      let glowColor2 = "rgba(3, 8, 6, 0.95)";
+      if (activeChapter === 3 || activeChapter === 5) {
+        glowColor1 = "rgba(70, 20, 10, 0.25)";
+        glowColor2 = "rgba(5, 2, 2, 0.97)";
+      } else if (activeChapter === 6) {
+        glowColor1 = "rgba(80, 50, 20, 0.18)";
+        glowColor2 = "rgba(8, 5, 3, 0.94)";
+      }
+
+      const ambientGlow = ctx.createRadialGradient(cx, cy, 100, cx, cy, Math.max(width, height) * 0.9);
+      ambientGlow.addColorStop(0, glowColor1);
+      ambientGlow.addColorStop(1, glowColor2);
+      ctx.fillStyle = ambientGlow;
+      ctx.fillRect(0, 0, width, height);
+
+      // ── Spawn & update particles ──────────────────────────
+      spawnParticles(width, height, activeChapter);
+
+      const particles = particlesRef.current;
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life++;
+        p.x += p.vx;
+        p.y += p.vy;
+
+        const lifeRatio = p.life / p.maxLife;
+
+        // Custom particle physics
+        if (p.type === "ember") {
+          p.vx += Math.sin(t * 0.05 + p.y * 0.01) * 0.08;
+          p.opacity = p.life < 15 ? p.life / 15 : (1 - lifeRatio) * 0.9;
+        } else if (p.type === "blossom") {
+          p.vx += Math.sin(t * 0.015 + p.x * 0.005) * 0.03;
+          p.rotation = (p.rotation || 0) + (p.rotSpeed || 1);
+          p.opacity = Math.min(1, p.life / 20) * (1 - Math.max(0, lifeRatio - 0.8) / 0.2);
+        } else if (p.type === "confetti") {
+          p.vx += Math.sin(t * 0.02 + p.y * 0.01) * 0.04;
+          p.rotation = (p.rotation || 0) + (p.rotSpeed || 2);
+          p.opacity = (1 - lifeRatio) * 0.9;
+        } else if (p.type === "mist") {
+          p.x += mousePos.x * 0.15;
+          p.y += mousePos.y * 0.08;
+          p.opacity = Math.min(p.opacity, (1 - lifeRatio) * 0.07);
+        } else if (p.type === "dust") {
+          p.opacity = Math.min(p.opacity, (1 - lifeRatio) * 0.04);
+        } else if (p.type === "lantern") {
+          p.vy = Math.sin(t * 0.015 + p.x * 0.004) * 0.12;
+          p.opacity = 0.4 + Math.sin(t * 0.04 + p.x) * 0.25;
+          if (lifeRatio > 0.85) p.opacity *= (1 - lifeRatio) / 0.15;
+        }
+
+        // Draw particle
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.opacity);
+
+        if (p.type === "mist" || p.type === "dust") {
+          const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+          grad.addColorStop(0, p.color);
+          grad.addColorStop(1, "transparent");
+          ctx.fillStyle = grad;
+          ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
+        } else if (p.type === "blossom") {
+          ctx.translate(p.x, p.y);
+          ctx.rotate(((p.rotation || 0) * Math.PI) / 180);
+          ctx.fillStyle = p.color;
+          for (let petal = 0; petal < 5; petal++) {
+            ctx.beginPath();
+            ctx.ellipse(0, -p.size * 0.4, p.size * 0.22, p.size * 0.42, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.rotate((Math.PI * 2) / 5);
+          }
+        } else if (p.type === "confetti") {
+          ctx.translate(p.x, p.y);
+          ctx.rotate(((p.rotation || 0) * Math.PI) / 180);
+          ctx.fillStyle = p.color;
+          ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+        } else if (p.type === "lantern") {
+          const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 5);
+          glow.addColorStop(0, p.color);
+          glow.addColorStop(1, "transparent");
+          ctx.fillStyle = glow;
+          ctx.fillRect(p.x - p.size * 5, p.y - p.size * 5, p.size * 10, p.size * 10);
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // ember / sparks
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowColor = p.color;
+          ctx.shadowBlur = 8;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+
+        ctx.restore();
+
+        // Remove dead or off-screen particles
+        if (p.life >= p.maxLife || p.x < -300 || p.x > width + 300 || p.y < -300 || p.y > height + 300) {
+          particles.splice(i, 1);
+        }
+      }
+
+      frameRef.current = requestAnimationFrame(draw);
+    };
+
+    frameRef.current = requestAnimationFrame(draw);
+
+    return () => {
+      cancelAnimationFrame(frameRef.current);
+      window.removeEventListener("resize", resize);
+    };
+  }, [canvasRef, activeChapter, mousePos, spawnParticles]);
+
+  const triggerSplashBurst = useCallback(
+    (cx: number, cy: number, count = 20) => {
+      // Re-purpose splash burst for sparks/firework explosion in the new cinematic format
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 3 + Math.random() * 6;
+        particlesRef.current.push({
+          x: cx,
+          y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 1,
+          size: 2 + Math.random() * 3,
+          opacity: 0.95,
+          life: 0,
+          maxLife: 50 + Math.random() * 40,
+          color: `hsl(${25 + Math.random() * 20}, 100%, ${60 + Math.random() * 20}%)`,
+          type: "ember",
+        });
+      }
+    },
+    []
+  );
+
+  return { triggerSplashBurst };
+}
