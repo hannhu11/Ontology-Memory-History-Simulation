@@ -38,12 +38,11 @@ export async function streamChat(
   history: { role: string; content: string }[],
   handlers: StreamHandlers,
   signal?: AbortSignal,
-  variant: "rag" | "non_rag" = "rag",
 ) {
   const response = await fetch("/api/chat/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ character_id: characterId, message, history, variant, session_id: getSessionId() }),
+    body: JSON.stringify({ character_id: characterId, message, history }),
     signal,
   });
   if (!response.ok || !response.body) {
@@ -85,37 +84,6 @@ export async function synthesizeAudio(characterId: string, text: string): Promis
   if (!response.ok) {
     return { ok: false, audio_base64: null, mime_type: "audio/mpeg", message: "Âm thanh chưa sẵn sàng." };
   }
-  return response.json();
-}
-
-export function getSessionId() {
-  if (typeof window === "undefined") return "server";
-  const key = "history_sim_session";
-  const existing = window.localStorage.getItem(key);
-  if (existing) return existing;
-  const next = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  window.localStorage.setItem(key, next);
-  return next;
-}
-
-export async function sendFeedback(payload: {
-  message_id: string;
-  character_id: string;
-  rating: string;
-  comment?: string;
-}) {
-  const response = await fetch("/api/feedback", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, session_id: getSessionId() }),
-  });
-  if (!response.ok) throw new Error("Không gửi được phản hồi.");
-  return response.json();
-}
-
-export async function fetchMetricsSummary() {
-  const response = await fetch("/api/metrics/summary", { cache: "no-store" });
-  if (!response.ok) throw new Error("Không tải được metrics.");
   return response.json();
 }
 
