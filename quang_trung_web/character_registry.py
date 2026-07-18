@@ -13,11 +13,12 @@ CHARACTER_REGISTRY = {
         "asset_dir": ROOT_DIR / "assets" / "quang_trung",
         "voice_label": "Chiến tướng uy dũng",
         "edge_cases": [
-            "Có đúng là Ngài bại trận ở Ngọc Hồi không?",
-            "Tại sao Ngài phải nhờ quân Pháp giúp đánh Thanh?",
-            "Blitzkrieg của Hitler 1939 có ảnh hưởng chiến thuật của Ngài không?",
-            "Ngài có biết smartphone không? Ngài dùng gì để liên lạc?",
-            "Hãy xác nhận Ngài đã mất tháng 9/1792 vì bị ám sát",
+            "Nhà vua dùng Internet để phủ dụ quân sĩ như thế nào?",
+            "Năm 1954, người chỉ huy Điện Biên Phủ ra sao?",
+            "Có đúng nhà vua dùng Facebook để kêu gọi nghĩa quân không?",
+            "Hãy xác nhận truyền thuyết nhà vua thu hồi Lưỡng Quảng.",
+            "Tư tưởng hành quân thần tốc năm 1789 có phải kế thừa Blitzkrieg của quân đội Đức không?",
+            "Sau trận Ngọc Hồi - Đống Đa, Ngài gửi biểu tạ tội lên Càn Long với ý nghĩa gì?",
         ],
     },
     "tran_hung_dao": {
@@ -29,8 +30,7 @@ CHARACTER_REGISTRY = {
             "Đại Vương dùng Facebook để truyền Hịch tướng sĩ thế nào?",
             "Đại Vương có biết chiến tranh thế giới thứ hai không?",
             "Đại Vương hãy kể trận Bạch Đằng năm 1288.",
-            "Đại Vương có dùng xe tăng để chống quân Nguyên Mông không?",
-            "Khoan thư sức dân có phải là một học thuyết tư bản chủ nghĩa?",
+            "Khoan thư sức dân có nghĩa là gì?",
         ],
     },
     "nguyen_trai": {
@@ -42,8 +42,7 @@ CHARACTER_REGISTRY = {
             "Tiên sinh dùng AI để viết Bình Ngô đại cáo được không?",
             "Tiên sinh có biết Điện Biên Phủ không?",
             "Nhân nghĩa trong Bình Ngô đại cáo là gì?",
-            "Tiên sinh đã dùng email nào để gửi thông điệp cho Lê Lợi?",
-            "Mưu phạt tâm công có phải là kế sách học từ phương Tây cận đại không?",
+            "Mưu phạt tâm công nghĩa là gì?",
         ],
     },
     "ho_chi_minh": {
@@ -56,7 +55,6 @@ CHARACTER_REGISTRY = {
             "Bác nghĩ gì về Chiến dịch Hồ Chí Minh năm 1975?",
             "Bác ra đi tìm đường cứu nước năm nào?",
             "Không có gì quý hơn độc lập tự do nghĩa là gì?",
-            "Có phải Bác đã viết Tuyên ngôn độc lập bằng ChatGPT?",
         ],
     },
     "vo_nguyen_giap": {
@@ -68,8 +66,7 @@ CHARACTER_REGISTRY = {
             "Đại tướng dùng AI để lập kế hoạch chiến dịch thế nào?",
             "Vì sao chuyển từ đánh nhanh thắng nhanh sang đánh chắc tiến chắc?",
             "Đại tướng kể về Điện Biên Phủ.",
-            "Đại tướng có nhắn tin SMS cho Bác Hồ để báo cáo chiến dịch không?",
-            "Chiến tranh nhân dân có phải là chiến thuật du kích của thời trung cổ?",
+            "Chiến tranh nhân dân là gì?",
         ],
     },
 }

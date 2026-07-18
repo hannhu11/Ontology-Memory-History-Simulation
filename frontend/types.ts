@@ -42,12 +42,22 @@ export type RouteInfo = {
   source?: string;
 };
 
+export type SourceSummary = {
+  citation_count: number;
+  tiers: number[];
+  strong_source_count: number;
+  strong_source_ratio: number;
+};
+
 export type StreamDiagnostics = {
   route?: RouteInfo;
   route_source?: string;
   llm_status?: string;
   fallback_used?: boolean;
   timings_ms?: Record<string, number>;
+  source_summary?: SourceSummary;
+  grounding_confidence?: number;
+  variant?: "rag" | "non_rag";
 };
 
 export type ChatMessage = {
@@ -60,6 +70,8 @@ export type ChatMessage = {
   audioBase64?: string | null;
   audioReady?: boolean;
   audioPending?: boolean;
+  diagnostics?: StreamDiagnostics;
+  feedbackSent?: string;
 };
 
 export type StreamEvent =
