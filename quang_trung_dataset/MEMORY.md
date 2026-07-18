@@ -694,3 +694,26 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `npm run build` -> pass.
 - Production (VPS): Pending (Require manual SSH pull do timeout).
 
+## Cap nhat DEPLOY_GITHUB_VPS_GUIDE ngay 2026-07-19
+
+- File huong dan van hanh duoc cap nhat tai:
+  `C:\Users\ADMIN\Downloads\Research MLN111\Research Ontology_ Memory, History & Simulation_prims_AI\DEPLOY_GITHUB_VPS_GUIDE.md`.
+- Da ghi ro server production History Ontology:
+  - Domain: `https://history-simulation-ai.online/`.
+  - VPS Oracle IP: `140.245.119.189`.
+  - SSH user: `ubuntu`.
+  - SSH private key dang dung: `C:\Users\ADMIN\Downloads\Open-claw\ssh-key-2026-03-01.key`.
+  - Lenh SSH: `ssh -i "C:\Users\ADMIN\Downloads\Open-claw\ssh-key-2026-03-01.key" ubuntu@140.245.119.189`.
+  - Repo production tren VPS: `/home/ubuntu/history-ontology`.
+  - Services History: `history-ontology-api.service`, `history-ontology-web.service`.
+- Da note ky VPS nay dung chung toi thieu 2 khu du an:
+  - PetHub: `https://pethubvn.store/`, khong sua/restart khi deploy History.
+  - History Ontology: FastAPI noi bo `127.0.0.1:8601`, Next.js noi bo `172.19.0.1:8501`.
+- Nguyen tac deploy an toan da duoc ghi trong guide:
+  - chi thao tac trong `/home/ubuntu/history-ontology`;
+  - `git pull --ff-only origin main`;
+  - khong public port `8501/8601`, chi public `80/443`;
+  - khong sua Nginx/PetHub neu chi deploy code app;
+  - restart chi `history-ontology-api.service` va `history-ontology-web.service`;
+  - sau deploy phai check History domain va PetHub domain deu HTTP 200.
+
