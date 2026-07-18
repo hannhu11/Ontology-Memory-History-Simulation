@@ -684,3 +684,13 @@ Ngoại lệ: các từ kỹ thuật có thể xuất hiện trong tài liệu k
   - `https://history-simulation-ai.online/` HTTP/2 200;
   - `https://pethubvn.store/` HTTP/2 200;
   - `/api/metrics/summary` trả được phân bố feedback hiện có: `faithful=11`, `missing-citation=2`, chưa có `hallucination`.
+
+## Deploy Integration Intro (Quang Trung, Tran Hung Dao, Nguyen Trai) ngay 2026-07-19
+
+- Commit: `8809011` (Remove accidentally added local logs and benchmarks, Integration).
+- Thay doi chinh:
+  - Tich hop man hinh Character Selection va hieu ung Intro cho cac nhan vat.
+- Local tests:
+  - `npm run build` -> pass.
+- Production (VPS): Pending (Require manual SSH pull do timeout).
+
