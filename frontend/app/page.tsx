@@ -18,11 +18,11 @@ const QuangTrungCinematicIntro = dynamic(
 
 // Local image maps to static local assets or dynamic assets from backend
 const CHARACTER_IMAGE_MAP: Record<string, string> = {
-  quang_trung: "/assets/quang_trung/idle.png",
-  tran_hung_dao: "/assets/tran_hung_dao/idle.png",
-  nguyen_trai: "/assets/nguyen_trai/idle.png",
-  ho_chi_minh: "/assets/ho_chi_minh/idle.png",
-  vo_nguyen_giap: "/assets/vo_nguyen_giap/idle.png",
+  quang_trung: "/assets/quang_trung/idle.png?v=20260724-real-portraits-v5",
+  tran_hung_dao: "/assets/tran_hung_dao/idle.png?v=20260724-real-portraits-v5",
+  nguyen_trai: "/assets/nguyen_trai/idle.png?v=20260724-real-portraits-v5",
+  ho_chi_minh: "/assets/ho_chi_minh/idle.png?v=20260724-real-portraits-v5",
+  vo_nguyen_giap: "/assets/vo_nguyen_giap/idle.png?v=20260724-real-portraits-v5",
 };
 
 export default function CharacterSelectPage() {

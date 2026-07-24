@@ -15,7 +15,7 @@ const STATIC_ASSETS: Record<VisualEmotion | "angry_2", string> = {
 };
 
 const COMMON_STATIC_ASSETS = Object.values(STATIC_ASSETS).filter((filename) => filename !== STATIC_ASSETS.angry_2);
-const ASSET_CACHE_VERSION = "20260612-all-character-assets-v2";
+const ASSET_CACHE_VERSION = "20260724-real-portraits-v5";
 
 const QUANG_TRUNG_ASSETS: Record<string, string> = {
   ...STATIC_ASSETS,
