@@ -232,10 +232,25 @@ export function IntroSequence({ onComplete }: IntroSequenceProps) {
   const [titleVisible, setTitleVisible] = useState(false);
   const [subtitleVisible, setSubtitleVisible] = useState(false);
 
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const startTimeRef = useRef(Date.now());
   const rafRef = useRef<number | null>(null);
   const sceneTimerRef = useRef<number | null>(null);
   const unmountedRef = useRef(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.play().catch((err) => console.log("Audio autoplay blocked", err));
+    }
+  }, []);
+
+  const handleFinish = () => {
+    if (audioRef.current) {
+      try { audioRef.current.pause(); } catch (_) {}
+    }
+    onComplete();
+  };
 
   const particles = useMemo(() => generateParticles(PARTICLE_COUNT), []);
   const scene = SCENES[currentScene];
@@ -359,6 +374,7 @@ export function IntroSequence({ onComplete }: IntroSequenceProps) {
             "'Noto Serif', 'Source Serif 4', 'Georgia', serif",
         }}
       >
+        <audio ref={audioRef} src="/speech_intro_nguyen_trai.mp3" preload="auto" />
         {/* ─── Background layer ─── */}
         {scene.background ? (
           <div
@@ -598,7 +614,7 @@ export function IntroSequence({ onComplete }: IntroSequenceProps) {
           {/* Scene 5 – CTA Button */}
           {scene.isFinal ? (
             <button
-              onClick={onComplete}
+              onClick={handleFinish}
               style={{
                 marginTop: 8,
                 padding: "18px 48px",
@@ -633,7 +649,7 @@ export function IntroSequence({ onComplete }: IntroSequenceProps) {
 
         {/* ─── Skip button ─── */}
         <button
-          onClick={onComplete}
+          onClick={handleFinish}
           style={{
             position: "absolute",
             top: 28,

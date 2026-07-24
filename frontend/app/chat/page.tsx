@@ -4,6 +4,13 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Bot, Pause, Play, RotateCcw, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { CharacterViewer } from "../../components/CharacterViewer";
 import { IntroSequence } from "../../components/IntroSequence";
+import { TranQuocTuanIntro } from "../../components/TranQuocTuanIntro";
+import dynamic from "next/dynamic";
+
+const QuangTrungCinematicIntro = dynamic(
+  () => import("../../components/QuangTrungCinematicIntro").then((mod) => mod.QuangTrungCinematicIntro),
+  { ssr: false }
+);
 import { citationKey, fetchCharacters, sendFeedback, streamChat, synthesizeAudio } from "../../lib/api";
 import { activeCharacter, summarizeCitations, useHistoryStore } from "../../lib/store";
 import type { ChatMessage, Citation, StreamDiagnostics } from "../../types";
@@ -370,6 +377,7 @@ function ChatContent() {
     clearChat,
   } = useHistoryStore();
   const [input, setInput] = useState("");
+  const [playingIntro, setPlayingIntro] = useState<string | null>(null);
   const [variant, setVariant] = useState<"rag" | "non_rag">("rag");
   const [loadError, setLoadError] = useState("");
   const abortRef = useRef<AbortController | null>(null);
@@ -404,6 +412,12 @@ function ChatContent() {
     abortRef.current = null;
     selectCharacter(characterId);
     setInput("");
+
+    if (characterId === "quang_trung" || characterId === "tran_hung_dao" || characterId === "nguyen_trai") {
+      setPlayingIntro(characterId);
+    } else {
+      setPlayingIntro(null);
+    }
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -535,6 +549,15 @@ function ChatContent() {
   /* ── Main Application ── */
   return (
     <>
+      {playingIntro === "quang_trung" && (
+        <QuangTrungCinematicIntro onComplete={() => setPlayingIntro(null)} />
+      )}
+      {playingIntro === "tran_hung_dao" && (
+        <TranQuocTuanIntro onComplete={() => setPlayingIntro(null)} />
+      )}
+      {playingIntro === "nguyen_trai" && (
+        <IntroSequence onComplete={() => setPlayingIntro(null)} />
+      )}
       <AmbientParticles />
       <main className="shell-grid" style={{ position: 'relative', zIndex: 1 }}>
 

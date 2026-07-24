@@ -145,8 +145,10 @@ export function TranQuocTuanIntro({ onComplete }: { onComplete: () => void }) {
   // Render logic
   const isCurtainOpen = stage === 'OPENING' || stage === 'PLAYING';
   
-  // Chỉ khi vào PLAYING (rèm đã mở xong) mới lấy cảnh hiện tại, nếu đang OPENING thì chưa có text
-  const currentScene = stage === 'PLAYING' ? (dynamicScenes[sceneIndex] || dynamicScenes[1]) : dynamicScenes[0];
+  // Khi ở OPENING hoặc PLAYING, lấy cảnh hiện tại (mặc định scene_1 nếu chưa có sceneIndex)
+  const currentScene = stage === 'PLAYING' || stage === 'OPENING' 
+    ? (dynamicScenes[sceneIndex && sceneIndex > 0 ? sceneIndex : 1] || dynamicScenes[1]) 
+    : dynamicScenes[0];
   
   const isNarratorVisible = stage === 'PLAYING' && (sceneIndex === 1 || sceneIndex === 2 || sceneIndex === 4);
   const isTalking = stage === 'PLAYING' && progress > 0.05 && progress < 0.95 && currentScene.line.length > 0;
@@ -154,18 +156,31 @@ export function TranQuocTuanIntro({ onComplete }: { onComplete: () => void }) {
   const showCaption = stage === 'PLAYING' && sceneIndex > 0 && sceneIndex < dynamicScenes.length - 1;
 
   return (
-    <div className="relative w-full h-full bg-[#050403] overflow-hidden text-white select-none">
+    <div className="fixed inset-0 z-[9999] w-screen h-screen bg-[#050403] overflow-hidden text-white select-none">
       <audio ref={audioRef} src="/speech_intro_tran_quoc_tuan.mp3" preload="auto" />
       <CinematicOverlay sceneIndex={sceneIndex} />
       <Curtain isOpen={isCurtainOpen} />
       <WaterStage sceneId={currentScene.id} progress={progress} />
       <NarratorPortrait isTalking={isTalking} opacity={isNarratorVisible ? 1 : 0} />
       
-      {showStartButton && stage === 'IDLE' && (
-        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      {/* Skip Button */}
+      <button
+        onClick={() => {
+          const audio = audioRef.current;
+          if (audio) audio.pause();
+          onComplete();
+        }}
+        className="absolute top-7 right-8 z-[101] px-5 py-2 text-xs font-bold uppercase tracking-widest text-white/70 bg-black/40 border border-white/20 rounded-md hover:bg-black/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
+        aria-label="Bỏ qua"
+      >
+        Bỏ qua ▶
+      </button>
+
+      {(showStartButton || stage === 'IDLE') && (
+        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md">
           <button 
             onClick={handleStart}
-            className="px-10 py-4 border-2 border-[#d4af37] text-[#d4af37] font-bold text-2xl uppercase tracking-widest hover:bg-[#d4af37] hover:text-[#050403] transition-all duration-300 shadow-[0_0_20px_rgba(212,175,55,0.4)] hover:shadow-[0_0_40px_rgba(212,175,55,0.8)] rounded-sm"
+            className="px-10 py-4 border-2 border-[#d4af37] text-[#d4af37] font-bold text-2xl uppercase tracking-widest hover:bg-[#d4af37] hover:text-[#050403] transition-all duration-300 shadow-[0_0_20px_rgba(212,175,55,0.4)] hover:shadow-[0_0_40px_rgba(212,175,55,0.8)] rounded-sm cursor-pointer"
           >
             Bắt đầu trải nghiệm
           </button>
