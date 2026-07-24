@@ -330,16 +330,25 @@ export function IntroSequence({ onComplete }: IntroSequenceProps) {
     [onComplete]
   );
 
-  /* Auto-advance scenes */
+  /* Auto-advance scenes when audio ends or fallback timer */
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (unmountedRef.current) return;
-      if (scene.isFinal) return; /* scene 5 stays until button click */
-      transitionToScene(currentScene + 1);
-    }, SCENE_DURATION_MS);
+    if (scene.isFinal) return; /* scene 4 stays until button click */
 
-    return () => window.clearTimeout(timer);
-  }, [currentScene, scene.isFinal, transitionToScene]);
+    const audio = audioRef.current;
+    if (audio) {
+      audio.load();
+      audio.play().catch((err) => console.log("Audio play blocked", err));
+    }
+  }, [currentScene, scene.isFinal]);
+
+  const handleAudioEnded = () => {
+    if (scene.isFinal) return;
+    window.setTimeout(() => {
+      if (!unmountedRef.current) {
+        transitionToScene(currentScene + 1);
+      }
+    }, 1200);
+  };
 
   /* ── Cleanup ── */
   useEffect(() => {
@@ -374,7 +383,12 @@ export function IntroSequence({ onComplete }: IntroSequenceProps) {
             "'Noto Serif', 'Source Serif 4', 'Georgia', serif",
         }}
       >
-        <audio ref={audioRef} src="/speech_intro_nguyen_trai.mp3" preload="auto" />
+        <audio
+          ref={audioRef}
+          src={`/nguyen_trai_scene${currentScene}.mp3`}
+          onEnded={handleAudioEnded}
+          preload="auto"
+        />
         {/* ─── Background layer ─── */}
         {scene.background ? (
           <div
